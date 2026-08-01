@@ -1,99 +1,97 @@
 # Game Aggregator
 
-Agregador de jogos de múltiplas plataformas (Steam, GOG, Epic, Amazon Luna) com notas de Metacritic, RAWG e GG.deals.
+Agregador de jogos: login Google → conecta lojas → biblioteca com notas (Metacritic/RAWG) e wishlist com promoções (IsThereAnyDeal).
 
 ## Stack
 
-- **Frontend:** Next.js 14+ (App Router) + TypeScript + Tailwind CSS
+- **Frontend:** Next.js 14 (App Router) + TypeScript + Tailwind CSS
 - **Backend:** Next.js API Routes
-- **Banco de dados:** SQLite + Prisma ORM
-- **Autenticação:** NextAuth.js com Google OAuth
+- **Banco:** SQLite + Prisma
+- **Auth:** NextAuth.js (Google OAuth)
+
+## Fluxo
+
+1. Login obrigatório com Google
+2. Conectar Steam e/ou GOG (Epic e Amazon Luna em breve)
+3. **Biblioteca** — notas Metacritic + RAWG
+4. **Wishlist** — preços/promoções via IsThereAnyDeal
+5. Sync automático **1x por dia** ao abrir o dashboard (ou “Atualizar agora”)
 
 ## Configuração
 
-### 1. Instalar dependências
+### 1. Instalar
 
 ```bash
-cd game-aggregator
 npm install
 ```
 
-### 2. Configurar variáveis de ambiente
+### 2. Variáveis de ambiente
 
-Crie o arquivo `.env` com o seguinte conteúdo (copie de `.env.example`):
+Copie `.env.example` para `.env` / `.env.local`:
 
 ```bash
-# Database
 DATABASE_URL="file:./dev.db"
-
-# NextAuth
 NEXTAUTH_URL="http://localhost:3000"
-NEXTAUTH_SECRET="your-secret-key-here-change-this-in-production"
-
-# Google OAuth
-GOOGLE_CLIENT_ID="your-google-client-id"
-GOOGLE_CLIENT_SECRET="your-google-client-secret"
-
-# Steam API
-STEAM_API_KEY="your-steam-api-key"
-
-# RAWG API
-RAWG_API_KEY="your-rawg-api-key"
+NEXTAUTH_SECRET="change-me"
+GOOGLE_CLIENT_ID="..."
+GOOGLE_CLIENT_SECRET="..."
+STEAM_API_KEY="..."
+RAWG_API_KEY="..."
+ITAD_API_KEY="..."
+ITAD_COUNTRY="BR"
+# Opcional (refresh token GOG)
+GOG_CLIENT_ID=""
+GOG_CLIENT_SECRET=""
 ```
 
-Você precisa configurar:
+Chaves:
 
-- **SQLite:** O banco de dados será criado automaticamente como `dev.db`
-- **NextAuth:** URL e secret (gere um secret aleatório para produção)
-- **Google OAuth:** Client ID e Secret (obter em https://console.cloud.google.com)
-- **Steam API Key:** Obter em https://steamcommunity.com/dev/apikey
-- **RAWG API Key:** Obter em https://rawg.io/apidocs
+- Google: https://console.cloud.google.com
+- Steam: https://steamcommunity.com/dev/apikey
+- RAWG: https://rawg.io/apidocs
+- ITAD: https://isthereanydeal.com/apps/
 
-### 3. Configurar banco de dados
+### 3. Banco
 
 ```bash
 npx prisma generate
 npx prisma db push
 ```
 
-O SQLite será configurado automaticamente e o arquivo `dev.db` será criado no diretório `prisma/`.
-
-### 4. Rodar o projeto
+### 4. Rodar
 
 ```bash
 npm run dev
 ```
 
-Acesse http://localhost:3000
+http://localhost:3000
 
-## Funcionalidades Atuais
+## Conectar lojas
 
-✅ Autenticação com Google OAuth
-✅ Integração com Steam Web API
-✅ Busca de jogos na biblioteca Steam
-✅ Integração com RAWG API
-✅ Integração com Metacritic (backend não-oficial)
-✅ Sistema de agregação de notas (média ponderada)
-✅ Dashboard com lista de jogos e notas
-✅ Visualização de notas por fonte (Metacritic, RAWG)
-✅ Botão para atualizar notas de cada jogo
-✅ Estrutura para integração Amazon Luna
+- **Steam:** Steam ID64 ou vanity URL (perfil precisa ter wishlist pública para sync da wishlist)
+- **GOG:** access token ou refresh token (API não oficial; pode exigir `GOG_CLIENT_ID` / `GOG_CLIENT_SECRET` para refresh)
 
-## Próximos Passos
+## APIs principais
 
-- [ ] Integração GOG (API não-oficial)
-- [ ] Integração Epic Games (requer onboarding)
-- [ ] Integração Amazon Luna (testar endpoints)
-- [ ] Integração GG.deals para preços
-- [ ] Sistema de busca e filtros
-- [ ] Página de detalhes do jogo
-- [ ] Gráficos e estatísticas
+| Rota | Função |
+|------|--------|
+| `POST /api/platforms/steam` | Vincular Steam |
+| `POST /api/platforms/gog` | Vincular GOG |
+| `GET/DELETE /api/platforms` | Listar / desvincular |
+| `GET/POST /api/library` | Ler / sync biblioteca |
+| `GET/POST /api/wishlist` | Ler / sync wishlist |
+| `POST /api/ratings/batch` | Notas em lote (owned) |
+| `POST /api/deals/batch` | Preços ITAD em lote (wishlist) |
+| `GET/POST /api/sync/daily` | Gate 24h + orquestra sync |
 
-## Como obter o Steam ID
+## Status
 
-1. Acesse https://steamcommunity.com/
-2. Faça login
-3. Vá ao seu perfil
-4. O ID está na URL: `https://steamcommunity.com/profiles/SEU_STEAM_ID`
-
-Ou use uma calculadora de Steam ID64: https://steamid.xyz/
+- [x] Google OAuth
+- [x] Steam biblioteca + wishlist
+- [x] GOG biblioteca + wishlist (token)
+- [x] Notas Metacritic + RAWG (biblioteca)
+- [x] Preços IsThereAnyDeal (wishlist)
+- [x] Sync diário ao abrir
+- [ ] Epic Games (UI em breve + stub)
+- [ ] Amazon Luna (UI em breve + stub)
+- [ ] GG.deals, alertas, filtros, página de detalhe

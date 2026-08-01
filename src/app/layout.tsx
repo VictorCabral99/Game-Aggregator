@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Game Aggregator - Seus jogos em um só lugar",
-  description: "Agregue seus jogos de Steam, GOG, Epic e Amazon Luna com notas de Metacritic, RAWG e GG.deals",
+  description: "Agregue seus jogos de Steam, GOG, Epic e Amazon Luna com notas de Metacritic/RAWG e preços do IsThereAnyDeal",
 };
 
 export default function RootLayout({

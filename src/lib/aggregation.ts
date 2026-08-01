@@ -5,41 +5,35 @@ export interface AggregatedRating {
   url: string | null;
 }
 
-export interface AggregatedGame {
-  id: string;
-  name: string;
-  platforms: string[];
-  ratings: AggregatedRating[];
-  averageRating: number;
-  weightedRating: number;
-}
-
 export class RatingAggregator {
   static calculateAverage(ratings: AggregatedRating[]): number {
-    const validRatings = ratings.filter(r => r.rating !== null && r.rating > 0);
+    const validRatings = ratings.filter((r) => r.rating !== null && r.rating > 0);
     if (validRatings.length === 0) return 0;
-    
+
     const sum = validRatings.reduce((acc, r) => acc + (r.rating || 0), 0);
     return Math.round((sum / validRatings.length) * 10) / 10;
   }
 
   static calculateWeighted(ratings: AggregatedRating[]): number {
-    const validRatings = ratings.filter(r => r.rating !== null && r.rating > 0);
+    const validRatings = ratings.filter((r) => r.rating !== null && r.rating > 0);
     if (validRatings.length === 0) return 0;
 
-    // Pesos: Metacritic (40%), RAWG (30%), GG.deals (30%)
+    // Metacritic 0-100 scale; RAWG typically 0-5 — normalize RAWG to 0-100
     const weights: Record<string, number> = {
-      metacritic: 0.4,
-      rawg: 0.3,
-      ggdeals: 0.3,
+      metacritic: 0.6,
+      rawg: 0.4,
     };
 
     let weightedSum = 0;
     let totalWeight = 0;
 
-    validRatings.forEach(r => {
-      const weight = weights[r.source] || 0.25; // Padrão se não especificado
-      weightedSum += (r.rating || 0) * weight;
+    validRatings.forEach((r) => {
+      const weight = weights[r.source] || 0.25;
+      let value = r.rating || 0;
+      if (r.source === 'rawg' && value <= 5) {
+        value = value * 20;
+      }
+      weightedSum += value * weight;
       totalWeight += weight;
     });
 
@@ -49,8 +43,7 @@ export class RatingAggregator {
 
   static aggregate(
     metacritic: number | null,
-    rawg: number | null,
-    ggdeals: number | null
+    rawg: number | null
   ): AggregatedRating[] {
     const ratings: AggregatedRating[] = [
       {
@@ -65,14 +58,17 @@ export class RatingAggregator {
         reviewCount: null,
         url: null,
       },
-      {
-        source: 'ggdeals',
-        rating: ggdeals,
-        reviewCount: null,
-        url: null,
-      },
     ];
 
-    return ratings.filter(r => r.rating !== null);
+    return ratings.filter((r) => r.rating !== null);
+  }
+
+  /** Normalize display score to ~0-100 for UI */
+  static toDisplayScore(source: string, rating: number | null): number | null {
+    if (rating === null) return null;
+    if (source === 'rawg' && rating <= 5) {
+      return Math.round(rating * 20 * 10) / 10;
+    }
+    return rating;
   }
 }
