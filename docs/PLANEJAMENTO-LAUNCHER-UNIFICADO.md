@@ -375,7 +375,7 @@ Regras:
 | GOG | [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) como sidecar (preferencial); Galaxy local como fallback de scan |
 | Amazon | [Nile](https://github.com/imLinguin/nile) como sidecar |
 | Steam | manifests em `steamapps`, `libraryfolders.vdf`, launch `steam://rungameid/` |
-| Emulators | RetroArch `--libretro`, PCSX2 CLI; config JSON por core |
+| Emulators | Consoles retro (`consoles.json` + `emulators.json`); emulador ativo por console, launch `retroArch -L core` / PCSX2 CLI |
 | Gamepad | Gamepad API no renderer; fallback nativo só se necessário |
 | Tokens | `safeStorage` (Electron) ou `keytar` |
 | Installer | electron-builder (NSIS/MSI) |
@@ -436,7 +436,7 @@ Cada fase é **independente, testável, entregável** e gera valor real ao usuá
 | 1 | Adicionar exes e jogar em fullscreen com lib persistente | `phase-1-done` |
 | 2 | Ver/jogar Steam (+ Epic/GOG/Amazon via sidecars) | `phase-2-done` |
 | 3 | Uma capa por jogo; sources múltiplas; busca/filtro | `phase-3-done` |
-| 4 | Importar ROMs e jogar no RetroArch/2º emulador | `phase-4-done` |
+| 4 | Consoles retro: jogos listados dentro do console; emulador trocável | `phase-4-done` |
 | 5 | Usar só o controle em modo TV | `phase-5-done` |
 | 6 | Ordenar por nota e achar “esquecidos” bem avaliados | `phase-6-done` |
 | 7 | Wishlist com preço/historical low e alerta | `phase-7-done` |
@@ -656,20 +656,23 @@ Uma grade, um jogo — metadados consistentes, sem duplicatas óbvias, organiza�
 
 ---
 
-### Fase 4 — Emuladores e retro
+### Fase 4 — Consoles retro (emulador relativo)
 
-> **Playbook:** [Fase 4](./PLAYBOOK-EXECUCAO-LAUNCHER.md#fase-4--emuladores-e-retro)
+> **Playbook:** [Fase 4](./PLAYBOOK-EXECUCAO-LAUNCHER.md#fase-4--consoles-retro-emulador-relativo)
 
 #### Objetivo
-ROMs e emuladores entram na mesma biblioteca, com launch configurável.
+ROMs entram na biblioteca organizados por **console retro**. O console (SNES, GBA, PS1, PS2…) é a entidade de primeira classe: dentro dele fica a listagem dos jogos. O **emulador é relativo** — não é o que o usuário navega; é apenas o motor de execução, escolhido pelo gosto do usuário entre opções pré-definidas por console.
 
 #### Funcionalidades incluídas
-- `EmulatorProvider` + perfis de emulador (RetroArch, PCSX2, DuckStation, etc.)
-- Importação de pastas de ROMs com extensões por sistema
-- Mapeamento core RetroArch por extensão/sistema
+- **Consoles como entidade principal** (SNES, NES, GBA, PS1, PS2, Arcade…): cada um com id, nome, extensões de ROM e dica de BIOS
+- UI: lista de consoles → **dentro do console**, grade dos jogos daquele console
+- Catálogo de emuladores (RetroArch, PCSX2, DuckStation, bsnes, higan…) com detecção de path e registro manual
+- Cada console tem **opções de emulador pré-definidas** (ex.: SNES → RetroArch `snes9x_libretro`, bsnes, higan)
+- **Emulador ativo por console** (setting): o usuário troca entre as opções a qualquer momento; o launch usa o ativo
+- Importação de pastas de ROMs com extensões por console
 - Metadados básicos (nome do arquivo limpo; scrape opcional depois)
-- Launch: `retroArch.exe -L core.dll romPath`
-- Agrupamento “Retro” / por sistema (PS2, SNES, …)
+- Launch: `retroArch.exe -L core.dll romPath` — ou o binário/args do emulador ativo daquele console
+- Agrupamento/categoria “Retro” por console no filtro
 
 #### O que NÃO será incluído ainda
 - Scraping avançado tipo LaunchBox/EmulationStation completo
@@ -677,7 +680,10 @@ ROMs e emuladores entram na mesma biblioteca, com launch configurável.
 - Netplay
 
 #### Decisões técnicas principais
-- Config YAML/JSON de sistemas em `%APPDATA%/.../emulators.json`
+- **Console-first**: `consoles.json` define os consoles (id, nome, extensões, BIOS hint) e suas **opções de emulador** (`emulatorId` + core/args)
+- `emulators.json` define perfis de binário (path, detecção, argsTemplate genéricos)
+- `GameSource` de plataforma `emulator` ganha `console_id` — o jogo pertence ao console; o emulador é resolvido no launch
+- Setting `console.<id>.emulator` guarda a escolha do usuário (default = primeira opção disponível instalada)
 - Não distribuir ROMs/BIOS; só apontar paths do usuário
 - Hash opcional (CRC) para dedupe de ROMs
 
@@ -688,13 +694,14 @@ ROMs e emuladores entram na mesma biblioteca, com launch configurável.
 #### Riscos e limitações
 - Legalidade: o app só gerencia arquivos locais do usuário
 - Paths absurdamente grandes (milhares de ROMs) → import async + virtualização da grade
-- Cores RetroArch variam por instalação
+- Cores RetroArch variam por instalação → opções por console mitigam (usuário troca o core)
+- Detecção de emulador falha em instalações fora do padrão → registro manual de path
 
 #### Definition of Done
-- [ ] Importa pasta SNES e lista jogos
-- [ ] Um ROM abre no RetroArch com core correto
-- [ ] PCSX2 (ou segundo emulador) configurável e funcional
-- [ ] Itens retro filtráveis por sistema
+- [ ] Importa pasta SNES e lista jogos **dentro do console SNES**
+- [ ] Trocar o emulador ativo do SNES (ex.: bsnes em vez de RetroArch) muda o launch sem reimportar
+- [ ] PCSX2 (ou segundo console/emulador) configurável e funcional
+- [ ] Itens retro filtráveis/agrupáveis por console
 
 ---
 
@@ -933,7 +940,7 @@ Performance, UX refinada, settings completos, distribuição confiável.
 | 1 | Jogar exes num só lugar | MVP instalável |
 | 2 | Lojas na mesma grade | Scan+launch Steam/Epic/GOG/Amazon |
 | 3 | Biblioteca limpa | Dedupe + metadados |
-| 4 | Retro unificado | ROMs + emuladores |
+| 4 | Retro unificado | Consoles + ROMs + emulador relativo |
 | 5 | Sofá / TV | Gamepad-first real |
 | 6 | “O que jogar?” | Ratings + rediscovery |
 | 7 | “Quando comprar?” | Wishlist + deals |
@@ -998,7 +1005,7 @@ Sequência inteligente de entrega:
 4. Dedupe / metadados  
 5. Plugar ratings + wishlist do agregador  
 6. Gamepad/TV  
-7. Emuladores e avançados  
+7. Consoles retro (emulador relativo) e avançados  
 
 Reavaliar fork Playnite **somente** se Steam+sidecars atrasarem >2× o estimado *e* a equipe aceitar migrar para C#. Reavaliar Tauri só com métrica de footprint/RAM do Electron.
 

@@ -474,45 +474,61 @@ Ratings na UI (só capa/metadata básica), emuladores, wishlist.
 
 ---
 
-## Fase 4 — Emuladores e retro
+## Fase 4 — Consoles retro (emulador relativo)
 
 ### Valor demonstrável
-Pasta de ROMs SNES importada; A abre no RetroArch com core certo; filtro “SNES”.
+Abrir o launcher, ver a lista de **consoles** (SNES, PS2, GBA…), entrar no console e ver os jogos dele. O emulador é só o motor de execução: o usuário troca o emulador ativo do console entre opções pré-definidas (ex.: SNES via RetroArch `snes9x` ou bsnes standalone) e o launch passa a usar o novo sem reimportar nada.
 
 ### Pré-requisitos
-RetroArch instalado + ≥1 core; pasta com ROMs de teste (legais do usuário). Segundo emulador (PCSX2 ou DuckStation).
+RetroArch instalado + ≥1 core; pasta com ROMs de teste (legais do usuário). Segundo emulador/console (PCSX2 ou DuckStation).
 
 ### Fora de escopo
 Scraper completo, netplay, distribuição de BIOS/ROMs.
 
 ### Breakdown
 
+#### Bloco A — modelo Console (dias 1–3)
+
 | ID | Tarefa |
 |----|--------|
-| P4-01 | `emulators.json` schema: id, binaryPath, argsTemplate, systems[] |
-| P4-02 | UI Settings → Emulators (add RetroArch path) |
-| P4-03 | Mapa extensão → sistema → core (`*.smc` → snes → `snes9x_libretro.dll`) |
-| P4-04 | Import folder: walk files, criar GameSource `emulator` |
-| P4-05 | Launch: `"$retroarch" -L "$core" "$rom"` |
-| P4-06 | Segundo perfil emulador (PCSX2: `pcsx2-qt.exe -batch -- "%rom%"`) |
-| P4-07 | Filtro/categoria por sistema |
-| P4-08 | Import async + progress para pastas grandes |
+| P4-01 | `consoles.json` schema: `id`, `name`, `shortName`, `extensions[]`, `biosHint`, `defaultEmulator` |
+| P4-02 | `emulators.json` schema: perfis de binário (`id`, `name`, `binaryPath`, `argsTemplate`) |
+| P4-03 | Mapa **console → opções de emulador**: `console.<id>.emulatorOptions[]` (`{ emulatorId, core?, args? }`) |
+| P4-04 | Migration: `game_sources` ganha `console_id`; tabela `consoles` + `console_emulator_options` |
+
+#### Bloco B — navegação e emulador relativo (dias 4–6)
+
+| ID | Tarefa |
+|----|--------|
+| P4-05 | UI Consoles: grade/list de consoles com contagem de jogos; entrar mostra a grade daquele console |
+| P4-06 | Setting `console.<id>.emulator`: emulador ativo, trocável na UI entre as opções pré-definidas |
+| P4-07 | Launch resolve o emulador ativo do console: `"$retroarch" -L "$core" "$rom"` / PCSX2 `-batch -- "%rom%"` |
+
+#### Bloco C — importação e organização (dias 7–10)
+
+| ID | Tarefa |
+|----|--------|
+| P4-08 | Import folder: walk files, criar GameSource `emulator` vinculado ao `console_id` |
 | P4-09 | Título limpo a partir do filename |
+| P4-10 | Import async + progress para pastas grandes |
+| P4-11 | Filtro/categoria por console (retro agrupado) |
 
 ### Script de teste
 
 1. Configurar RetroArch + core SNES.  
-2. Importar pasta → N jogos.  
+2. Importar pasta → jogos aparecem **dentro do console SNES**.  
 3. Launch 1 ROM.  
-4. Configurar 2º emulador + 1 ROM.  
-5. Filtro por sistema.  
-6. Sem BIOS (PS2): erro legível, não crash.
+4. Trocar o emulador ativo do SNES na UI (ex.: bsnes) → launch usa o novo, sem reimportar.  
+5. Configurar 2º console/emulador (PS2) + 1 ROM.  
+6. Filtro por console.  
+7. Sem BIOS (PS2): erro legível, não crash.
 
 ### Gate 100% funcional — Fase 4
 
-- [ ] Import + launch RetroArch
-- [ ] Segundo emulador OK
-- [ ] Filtro sistema
+- [ ] Import + launch RetroArch dentro de um console
+- [ ] Troca de emulador ativo funciona (sem reimport)
+- [ ] Segundo console/emulador OK
+- [ ] Filtro por console
 - [ ] Lojas/local intactos
 - [ ] Tag `phase-4-done`
 
