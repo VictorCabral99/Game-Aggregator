@@ -436,7 +436,7 @@ Cada fase é **independente, testável, entregável** e gera valor real ao usuá
 | 1 | Adicionar exes e jogar em fullscreen com lib persistente | `phase-1-done` |
 | 2 | Ver/jogar Steam (+ Epic/GOG/Amazon via sidecars) | `phase-2-done` |
 | 3 | Uma capa por jogo; sources múltiplas; busca/filtro | `phase-3-done` |
-| 4 | Consoles retro: jogos listados dentro do console; emulador trocável | `phase-4-done` |
+| 4 | Consoles retro: entrada “Emulação” tipo pasta → jogos por console, ROMs da pasta padrão, emulador trocável | `phase-4-done` |
 | 5 | Usar só o controle em modo TV | `phase-5-done` |
 | 6 | Ordenar por nota e achar “esquecidos” bem avaliados | `phase-6-done` |
 | 7 | Wishlist com preço/historical low e alerta | `phase-7-done` |
@@ -661,15 +661,17 @@ Uma grade, um jogo — metadados consistentes, sem duplicatas óbvias, organiza�
 > **Playbook:** [Fase 4](./PLAYBOOK-EXECUCAO-LAUNCHER.md#fase-4--consoles-retro-emulador-relativo)
 
 #### Objetivo
-ROMs entram na biblioteca organizados por **console retro**. O console (SNES, GBA, PS1, PS2…) é a entidade de primeira classe: dentro dele fica a listagem dos jogos. O **emulador é relativo** — não é o que o usuário navega; é apenas o motor de execução, escolhido pelo gosto do usuário entre opções pré-definidas por console.
+ROMs entram na biblioteca organizados por **console retro**. O console (SNES, GBA, PS1, PS2…) é a entidade de primeira classe: dentro dele fica a listagem dos jogos. O **emulador é relativo** — não é o que o usuário navega; é apenas o motor de execução, escolhido pelo gosto do usuário entre opções pré-definidas por console. Os jogos seguem um **modelo de pasta padrão**: colocar um ROM válido na pasta daquele console faz o software reconhecer e listar automaticamente.
 
 #### Funcionalidades incluídas
+- Entrada **“Emulação”** na navegação — semelhante a uma pasta: abrir → lista de consoles retro → jogos de cada console
 - **Consoles como entidade principal** (SNES, NES, GBA, PS1, PS2, Arcade…): cada um com id, nome, extensões de ROM e dica de BIOS
+- **Pasta padrão por console** (watch folder): ROMs válidos colocados na pasta são identificados automaticamente por extensão e entram na lista — modelo drop-in
+- Mapeamento manual de ROM (alternativa à pasta padrão): apontar um arquivo específico para um console
 - UI: lista de consoles → **dentro do console**, grade dos jogos daquele console
 - Catálogo de emuladores (RetroArch, PCSX2, DuckStation, bsnes, higan…) com detecção de path e registro manual
 - Cada console tem **opções de emulador pré-definidas** (ex.: SNES → RetroArch `snes9x_libretro`, bsnes, higan)
 - **Emulador ativo por console** (setting): o usuário troca entre as opções a qualquer momento; o launch usa o ativo
-- Importação de pastas de ROMs com extensões por console
 - Metadados básicos (nome do arquivo limpo; scrape opcional depois)
 - Launch: `retroArch.exe -L core.dll romPath` — ou o binário/args do emulador ativo daquele console
 - Agrupamento/categoria “Retro” por console no filtro
@@ -682,6 +684,7 @@ ROMs entram na biblioteca organizados por **console retro**. O console (SNES, GB
 #### Decisões técnicas principais
 - **Console-first**: `consoles.json` define os consoles (id, nome, extensões, BIOS hint) e suas **opções de emulador** (`emulatorId` + core/args)
 - `emulators.json` define perfis de binário (path, detecção, argsTemplate genéricos)
+- **Modelo de pasta padrão**: cada console tem um `defaultFolder` (watch folder). O scan dessa pasta identifica ROMs válidos pela extensão e cria/atualiza `GameSource` automaticamente — “colocou na pasta, o app reconhece”. Mapeamento manual continua disponível
 - `GameSource` de plataforma `emulator` ganha `console_id` — o jogo pertence ao console; o emulador é resolvido no launch
 - Setting `console.<id>.emulator` guarda a escolha do usuário (default = primeira opção disponível instalada)
 - Não distribuir ROMs/BIOS; só apontar paths do usuário
@@ -696,9 +699,11 @@ ROMs entram na biblioteca organizados por **console retro**. O console (SNES, GB
 - Paths absurdamente grandes (milhares de ROMs) → import async + virtualização da grade
 - Cores RetroArch variam por instalação → opções por console mitigam (usuário troca o core)
 - Detecção de emulador falha em instalações fora do padrão → registro manual de path
+- Pasta padrão sem organização (ROMs soltos + subpastas) → scan recursivo com limite de profundidade e ignorar pastas ocultas
 
 #### Definition of Done
 - [ ] Importa pasta SNES e lista jogos **dentro do console SNES**
+- [ ] Colocar um ROM válido novo na pasta padrão → aparece sem reimport manual
 - [ ] Trocar o emulador ativo do SNES (ex.: bsnes em vez de RetroArch) muda o launch sem reimportar
 - [ ] PCSX2 (ou segundo console/emulador) configurável e funcional
 - [ ] Itens retro filtráveis/agrupáveis por console
@@ -940,7 +945,7 @@ Performance, UX refinada, settings completos, distribuição confiável.
 | 1 | Jogar exes num só lugar | MVP instalável |
 | 2 | Lojas na mesma grade | Scan+launch Steam/Epic/GOG/Amazon |
 | 3 | Biblioteca limpa | Dedupe + metadados |
-| 4 | Retro unificado | Consoles + ROMs + emulador relativo |
+| 4 | Retro unificado | Consoles + ROMs (pasta padrão) + emulador relativo |
 | 5 | Sofá / TV | Gamepad-first real |
 | 6 | “O que jogar?” | Ratings + rediscovery |
 | 7 | “Quando comprar?” | Wishlist + deals |
