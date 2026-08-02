@@ -10,7 +10,8 @@ Launcher unificado para Windows. **Não é um fork do Heroic**: reusa sidecars
 - **Fase 2A** ✅ Steam — scan local (`libraryfolders.vdf`/`appmanifest_*.acf`) + `steam://rungameid`
 - **Fase 2B–D** ✅ providers Epic (Legendary), GOG (gogdl) e Amazon (Nile) — dependem dos sidecars
 - **Fase 2E** ✅ integração — Sync tudo, tela Providers, filtro por plataforma, About com atribuições
-- **Fase 3+** em andamento — normalização, capas/metadados
+- **Fase 3** ✅ biblioteca unificada — canonical_games + game_sources (dedupe/auto-merge), capas offline em cache disco, gêneros, busca e filtros
+- **Fase 4+** em andamento — emuladores e retro
 
 ## Sidecars (Epic/GOG/Amazon)
 
@@ -39,7 +40,11 @@ App abre em fullscreen. Use `Ctrl+N` para adicionar um jogo.
 npm run typecheck            # tsc nos workspaces
 npm run build -w @gagg/desktop
 npm run smoke:sidecars       # verifica binários de loja (Fase 2)
-node tools/scripts/repo-smoke.ts   # CRUD da biblioteca local
+node tools/scripts/repo-smoke.ts            # CRUD da biblioteca local
+node tools/scripts/merge-smoke.ts           # auto-merge + separar (Fase 3)
+node tools/scripts/normalize-smoke.ts       # normalizeTitle (Fase 3)
+node tools/scripts/migration-upgrade-smoke.ts  # upgrade v2→v4 (Fase 3)
+node tools/scripts/perf-filter-smoke.ts     # filtro 200 itens <300ms (Fase 3)
 ```
 
 ## Instalador

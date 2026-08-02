@@ -8,11 +8,14 @@ interface Props {
 }
 
 export default function GameFormModal({ game, onClose, onSave }: Props): JSX.Element {
+  const localSource = game?.sources.find((s) => s.platform === 'local') ?? null;
   const [title, setTitle] = useState(game?.title ?? '');
-  const [executable, setExecutable] = useState(game?.executable ?? '');
-  const [cwd, setCwd] = useState(game?.cwd ?? '');
+  const [executable, setExecutable] = useState(localSource?.executable ?? '');
+  const [cwd, setCwd] = useState(localSource?.cwd ?? '');
   const [coverPath, setCoverPath] = useState<string | null>(game?.coverPath ?? null);
   const [coverUrl, setCoverUrl] = useState(game?.coverUrl ?? '');
+  const [genres, setGenres] = useState(game?.genres.join(', ') ?? '');
+  const [summary, setSummary] = useState(game?.summary ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,6 +69,11 @@ export default function GameFormModal({ game, onClose, onSave }: Props): JSX.Ele
       cwd: cwd.trim() || undefined,
       coverPath: coverPath ?? undefined,
       coverUrl: coverUrl.trim() || undefined,
+      genres: genres
+        .split(',')
+        .map((g) => g.trim())
+        .filter(Boolean),
+      summary: summary.trim() || undefined,
     };
     setSaving(true);
     try {
@@ -98,6 +106,24 @@ export default function GameFormModal({ game, onClose, onSave }: Props): JSX.Ele
         <label className="field">
           <span>Diretório de trabalho (opcional)</span>
           <input value={cwd} onChange={(e) => setCwd(e.target.value)} placeholder="Deixe vazio para usar o padrão" />
+        </label>
+
+        <label className="field">
+          <span>Gêneros (separados por vírgula)</span>
+          <input
+            value={genres}
+            onChange={(e) => setGenres(e.target.value)}
+            placeholder="ex.: Ação, RPG, Aventura"
+          />
+        </label>
+
+        <label className="field">
+          <span>Resumo (opcional)</span>
+          <input
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
+            placeholder="Breve descrição do jogo"
+          />
         </label>
 
         <div className="field">

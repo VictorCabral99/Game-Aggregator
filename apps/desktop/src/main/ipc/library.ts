@@ -38,20 +38,55 @@ export function registerLibraryHandlers(): void {
   ipcMain.handle('library:launch', async (_event, id: string) => {
     const game = repo().get(id);
     if (!game) throw new Error('Jogo não encontrado');
+    const source = game.preferredSource;
+    if (!source) throw new Error('Jogo sem fonte para iniciar');
+    return launchSource(source.id);
+  });
 
-    if (game.platform !== 'local') {
-      if (!game.externalId) throw new Error('Jogo sem id externo');
-      const res = await launchPlatformGame(game.platform, game.externalId);
-      if (res.ok) repo().touchPlayed(id);
-      return res;
+  ipcMain.handle('library:launch-source', async (_event, sourceId: string) => {
+    const source = repo().getSource(sourceId);
+    if (!source) throw new Error('Fonte do jogo não encontrada');
+    return launchSource(source.id);
+  });
+
+  ipcMain.handle('library:merge-sources', (_event, args: { targetGameId: string; sourceIds: string[] }) => {
+    if (!args?.targetGameId || !Array.isArray(args.sourceIds)) {
+      throw new Error('Argumentos inválidos para merge');
     }
+    return repo().mergeSources(args.targetGameId, args.sourceIds);
+  });
 
-    if (!game.executable) throw new Error('Este jogo não tem executável local');
+  ipcMain.handle('library:separate-source', (_event, sourceId: string) => {
+    if (!sourceId) throw new Error('sourceId é obrigatório');
+    return repo().separateSource(sourceId);
+  });
 
-    const { spawn } = await import('node:child_process');
+  ipcMain.handle('library:possible-duplicates', () => repo().possibleDuplicates());
+}
+
+function launchSource(sourceId: string) {
+  const repo = getLibraryRepository();
+  const source = repo.getSource(sourceId);
+  if (!source) return Promise.resolve({ ok: false, error: 'Fonte não encontrada' });
+
+  if (source.platform !== 'local') {
+    if (!source.externalId) {
+      return Promise.resolve({ ok: false, error: 'Jogo sem id externo' });
+    }
+    return launchPlatformGame(source.platform, source.externalId).then((res) => {
+      if (res.ok) repo.touchSourcePlayed(source.id);
+      return res;
+    });
+  }
+
+  if (!source.executable) {
+    return Promise.resolve({ ok: false, error: 'Este jogo não tem executável local' });
+  }
+
+  return import('node:child_process').then(({ spawn }) => {
     return new Promise((resolve) => {
-      const child = spawn(game.executable as string, [], {
-        cwd: game.cwd || undefined,
+      const child = spawn(source.executable as string, [], {
+        cwd: source.cwd || undefined,
         detached: true,
         stdio: 'ignore',
         windowsHide: false,
@@ -63,7 +98,7 @@ export function registerLibraryHandlers(): void {
       child.once('spawn', () => {
         child.removeListener('error', fail);
         child.unref();
-        repo().touchPlayed(id);
+        repo.touchSourcePlayed(source.id);
         resolve({ ok: true, pid: child.pid });
       });
     });

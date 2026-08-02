@@ -112,6 +112,7 @@ export class SteamProvider implements GameProvider {
             title: name,
             installPath: installdir ? join(steamApps, 'common', installdir) : undefined,
             sizeBytes,
+            coverUrl: `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`,
             raw: { libraryFolder: folder },
           });
         } catch {

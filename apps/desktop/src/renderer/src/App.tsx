@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CreateGameInput,
   Game,
+  GamePlatform,
+  GameSource,
   LaunchResult,
   SteamStatus,
   StoreId,
@@ -12,6 +14,7 @@ import GameDetailModal from './components/GameDetailModal';
 import GameFormModal from './components/GameFormModal';
 import ProvidersModal from './components/ProvidersModal';
 import AboutModal from './components/AboutModal';
+import DuplicatesModal from './components/DuplicatesModal';
 import Toast from './components/Toast';
 
 type View =
@@ -19,9 +22,10 @@ type View =
   | { kind: 'detail'; gameId: string }
   | { kind: 'form'; gameId: string | null }
   | { kind: 'providers' }
-  | { kind: 'about' };
+  | { kind: 'about' }
+  | { kind: 'duplicates' };
 
-type PlatformFilter = 'all' | Game['platform'];
+type PlatformFilter = 'all' | GamePlatform;
 
 interface ToastState {
   message: string;
@@ -55,7 +59,11 @@ export default function App(): JSX.Element {
   const [steam, setSteam] = useState<SteamStatus | null>(null);
   const [stores, setStores] = useState<Partial<Record<StoreId, StoreStatus | null>>>({});
   const [filter, setFilter] = useState<PlatformFilter>('all');
+  const [genreFilter, setGenreFilter] = useState<string>('all');
+  const [installedOnly, setInstalledOnly] = useState(false);
+  const [query, setQuery] = useState('');
   const [syncingAll, setSyncingAll] = useState(false);
+  const [downloadingCovers, setDownloadingCovers] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
@@ -82,6 +90,7 @@ export default function App(): JSX.Element {
         .then((s) => setStores((prev) => ({ ...prev, [id]: s })))
         .catch(() => setStores((prev) => ({ ...prev, [id]: null })));
     }
+    void window.api.coversDownloadMissing().catch(() => undefined);
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
@@ -97,6 +106,7 @@ export default function App(): JSX.Element {
           : `Sync completo: ${res.totalScanned} jogos verificados`
       );
       await refresh();
+      void downloadCovers();
     } catch (err) {
       notify(err instanceof Error ? err.message : String(err), 'error');
     } finally {
@@ -104,9 +114,42 @@ export default function App(): JSX.Element {
     }
   };
 
+  const downloadCovers = async () => {
+    setDownloadingCovers(true);
+    try {
+      const res = await window.api.coversDownloadMissing();
+      if (res.downloaded > 0) {
+        notify(`Capas baixadas: ${res.downloaded}${res.failed > 0 ? ` (${res.failed} falhas)` : ''}`);
+      }
+      await refresh();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setDownloadingCovers(false);
+    }
+  };
+
   const cols = Math.max(1, Math.floor((window.innerWidth - PADDING * 2) / (CARD_W + GAP)));
 
-  const visibleGames = filter === 'all' ? games : games.filter((g) => g.platform === filter);
+  const allGenres = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of games) for (const genre of g.genres) set.add(genre);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [games]);
+
+  const visibleGames = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return games.filter((g) => {
+      if (filter !== 'all' && !g.sources.some((s) => s.platform === filter)) return false;
+      if (installedOnly && !g.sources.some((s) => s.isInstalled)) return false;
+      if (genreFilter !== 'all' && !g.genres.includes(genreFilter)) return false;
+      if (q) {
+        const haystack = `${g.title} ${g.normalizedTitle} ${g.sources.map((s) => s.title).join(' ')}`.toLowerCase();
+        if (!q.split(/\s+/).every((token) => haystack.includes(token))) return false;
+      }
+      return true;
+    });
+  }, [games, filter, genreFilter, installedOnly, query]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -158,9 +201,22 @@ export default function App(): JSX.Element {
     setView({ kind: 'library' });
   };
 
-  const launch = async (game: Game): Promise<LaunchResult> => {
+  const separateSource = async (source: GameSource) => {
+    if (view.kind !== 'detail') return;
     try {
-      const res = await window.api.libraryLaunch(game.id);
+      await window.api.librarySeparateSource(source.id);
+      notify('Fonte separada em um jogo próprio');
+      await refresh();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'error');
+    }
+  };
+
+  const launch = async (game: Game, source?: GameSource): Promise<LaunchResult> => {
+    try {
+      const res = source
+        ? await window.api.libraryLaunchSource(source.id)
+        : await window.api.libraryLaunch(game.id);
       if (res.ok) {
         notify(`Iniciando ${game.title}…`);
         await refresh();
@@ -208,8 +264,19 @@ export default function App(): JSX.Element {
           >
             {syncingAll ? 'Sincronizando…' : 'Sync tudo'}
           </button>
+          <button
+            type="button"
+            disabled={downloadingCovers}
+            onClick={() => void downloadCovers()}
+            title="Baixa capas que ainda não estão no cache local"
+          >
+            {downloadingCovers ? 'Baixando capas…' : 'Baixar capas'}
+          </button>
           <button type="button" onClick={() => setView({ kind: 'providers' })}>
             Providers
+          </button>
+          <button type="button" onClick={() => setView({ kind: 'duplicates' })}>
+            Duplicatas
           </button>
           <button type="button" onClick={() => setView({ kind: 'about' })}>
             Sobre
@@ -239,10 +306,58 @@ export default function App(): JSX.Element {
           >
             {label}
             <span className="filter-chip__count">
-              {id === 'all' ? games.length : games.filter((g) => g.platform === id).length}
+              {id === 'all'
+                ? games.length
+                : games.filter((g) => g.sources.some((s) => s.platform === id)).length}
             </span>
           </button>
         ))}
+        <button
+          type="button"
+          className={`filter-chip ${installedOnly ? 'filter-chip--active' : ''}`}
+          aria-pressed={installedOnly}
+          onClick={() => {
+            setInstalledOnly((v) => !v);
+            setSelected(0);
+          }}
+        >
+          Instalados
+          <span className="filter-chip__count">
+            {games.filter((g) => g.sources.some((s) => s.isInstalled)).length}
+          </span>
+        </button>
+      </div>
+
+      <div className="toolbar">
+        <input
+          type="search"
+          className="search"
+          placeholder="Buscar por nome… (filtra a grade)"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setSelected(0);
+          }}
+        />
+        {allGenres.length > 0 && (
+          <select
+            className="genre-filter"
+            value={genreFilter}
+            onChange={(e) => {
+              setGenreFilter(e.target.value);
+              setSelected(0);
+            }}
+            aria-label="Filtrar por gênero"
+          >
+            <option value="all">Todos os gêneros</option>
+            {allGenres.map((genre) => (
+              <option key={genre} value={genre}>
+                {genre}
+              </option>
+            ))}
+          </select>
+        )}
+        <span className="toolbar__count">{visibleGames.length} de {games.length} jogos</span>
       </div>
 
       {visibleGames.length === 0 ? (
@@ -287,6 +402,7 @@ export default function App(): JSX.Element {
           onEdit={() => setView({ kind: 'form', gameId: detailGame.id })}
           onRemove={() => remove()}
           onLaunch={launch}
+          onSeparateSource={separateSource}
         />
       )}
 
@@ -301,6 +417,13 @@ export default function App(): JSX.Element {
       {view.kind === 'providers' && <ProvidersModal onClose={() => setView({ kind: 'library' })} />}
 
       {view.kind === 'about' && <AboutModal onClose={() => setView({ kind: 'library' })} />}
+
+      {view.kind === 'duplicates' && (
+        <DuplicatesModal
+          onClose={() => setView({ kind: 'library' })}
+          onMerged={() => void refresh()}
+        />
+      )}
 
       <Toast message={toast?.message ?? ''} kind={toast?.kind ?? 'ok'} />
     </main>

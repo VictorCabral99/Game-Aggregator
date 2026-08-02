@@ -48,11 +48,22 @@ function stripBrackets(input: string): string {
 
 export function normalizeTitle(title: string): string {
   if (!title) return '';
-  const cleaned = title
-    .replace(/[\u2122\u00ae\u00a9\u2019']/g, '') // ™ ® © ’ '
-    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
-    .replace(/\s+/g, ' ')
+  // Limpeza leve antes do strip: remove ™ ® © e normaliza aspas tipográficas para '
+  let out = title
+    .replace(/[\u2122\u00ae\u00a9]/g, '')
+    .replace(/[\u2018\u2019\u201a\u00b4]/g, "'")
+    .replace(/[\u2014\u2013]/g, ' ') // em/en dash → espaço
     .trim()
     .toLowerCase();
-  return stripSuffixes(stripBrackets(cleaned)).replace(/\s+/g, ' ');
+
+  // Strip de edições precisa rodar ANTES de remover pontuação,
+  // senão "(GOTY)" vira espaço e nunca é removido.
+  out = stripBrackets(out);
+  out = stripSuffixes(out);
+
+  return out
+    .replace(/'/g, '') // apóstrofos somem: "baldur's gate" == "baldurs gate"
+    .replace(/[^\p{L}\p{N}\s-]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

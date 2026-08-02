@@ -1,4 +1,5 @@
-// Smoke: upgrade de DB da Fase 1 (v2) para v3 preservando jogos locais.
+// Smoke: upgrade de DB da Fase 1 (v2) para v3/v4 preservando jogos locais
+// e migrando dados flat → canonical_games + game_sources.
 // Uso: node tools/scripts/migration-upgrade-smoke.ts
 import { DatabaseSync } from 'node:sqlite';
 import { applyMigrations } from '../../apps/desktop/src/main/db/migrations.ts';
@@ -33,9 +34,13 @@ const repo = new LibraryRepository(db);
 
 const list = repo.list();
 assert(list.length === 2, `preservou ${list.length} jogos`);
-assert(list.every((g) => g.platform === 'local'), 'todos platform=local');
+assert(list.every((g) => g.sources.some((s) => s.platform === 'local')), 'todos sources=local');
 assert(list.find((g) => g.id === 'a')?.title === 'Notepad', 'título preservado');
-assert(list.find((g) => g.id === 'b')?.cwd === 'C:\\Windows', 'cwd preservado');
+assert(
+  list.find((g) => g.id === 'b')?.sources[0].cwd === 'C:\\Windows',
+  'cwd preservado na source'
+);
+assert(list.find((g) => g.id === 'b')?.sources[0].executable === 'C:\\Windows\\System32\\calc.exe', 'exe preservado');
 
 // upsert de jogo de loja funciona após o upgrade
 repo.upsertMany('steam', [{ externalId: '730', title: 'CS2' }]);

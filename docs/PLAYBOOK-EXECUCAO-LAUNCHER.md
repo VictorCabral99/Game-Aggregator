@@ -426,33 +426,33 @@ Ratings na UI (só capa/metadata básica), emuladores, wishlist.
 
 #### Bloco A — modelo Canonical (dias 1–3)
 
-| ID | Tarefa |
-|----|--------|
-| P3-01 | Migrar schema: `canonical_games`, `game_sources` (ver planejamento §2.4) |
-| P3-02 | Migration dos dados flat → sources + canonical 1:1 |
-| P3-03 | UI detalhe lista sources com botão Jogar por source |
-| P3-04 | Preferência de launch: última source usada / instalada |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P3-01 | Migrar schema: `canonical_games`, `game_sources` (ver planejamento §2.4) | ✅ migration v4 + `LibraryRepository` |
+| P3-02 | Migration dos dados flat → sources + canonical 1:1 | ✅ `migration-upgrade-smoke.ts` |
+| P3-03 | UI detalhe lista sources com botão Jogar por source | ✅ `GameDetailModal` (source rows + launch por source) |
+| P3-04 | Preferência de launch: última source usada / instalada | ✅ `pickPreferred` no repo |
 
 #### Bloco B — matching (dias 4–6)
 
-| ID | Tarefa |
-|----|--------|
-| P3-05 | `normalizeTitle()` + testes unitários (casos: ™, GOTY, -: ) |
-| P3-06 | Auto-merge por steamAppId / gogId / epic id quando metadata tiver |
-| P3-07 | Auto-merge por título exact normalizado (threshold estrito) |
-| P3-08 | Fila de “possíveis duplicatas” (fuzzy) — UI aprovar/rejeitar |
-| P3-09 | Ação Separar merge |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P3-05 | `normalizeTitle()` + testes unitários (casos: ™, GOTY, -: ) | ✅ `normalize-smoke.ts` (13 casos) |
+| P3-06 | Auto-merge por steamAppId / gogId / epic id quando metadata tiver | ✅ unique `(platform, external_id)` |
+| P3-07 | Auto-merge por título exact normalizado (threshold estrito) | ✅ `upsertMany` + `normalize-smoke` |
+| P3-08 | Fila de “possíveis duplicatas” (fuzzy) — UI aprovar/rejeitar | ✅ `possibleDuplicates` + `DuplicatesModal` |
+| P3-09 | Ação Separar merge | ✅ `separateSource` + `mergeSources` (com poda de órfãos) |
 
 #### Bloco C — arte e organização (dias 7–10)
 
-| ID | Tarefa |
-|----|--------|
-| P3-10 | Download capa Steam CDN ou RAWG → cache disco |
-| P3-11 | Offline: grade usa só cache |
-| P3-12 | Gêneros (RAWG) opcional + filtro |
-| P3-13 | Busca nome (includes / simples fuzzy) |
-| P3-14 | Filtro plataforma / instalado |
-| P3-15 | Perf: filtro <300ms em 200 itens (gerar seed se preciso) |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P3-10 | Download capa Steam CDN ou RAWG → cache disco | ✅ `covers:download-missing` + botão "Baixar capas" |
+| P3-11 | Offline: grade usa só cache | ✅ `coverSrc` prioriza `coverPath` (local) |
+| P3-12 | Gêneros (RAWG) opcional + filtro | ✅ gêneros no form + filtro por gênero |
+| P3-13 | Busca nome (includes / simples fuzzy) | ✅ toolbar de busca (tokens) |
+| P3-14 | Filtro plataforma / instalado | ✅ chips por `sources` + toggle "Instalados" |
+| P3-15 | Perf: filtro <300ms em 200 itens (gerar seed se preciso) | ✅ `perf-filter-smoke.ts` (200 itens, ~5ms) |
 
 ### Script de teste
 
@@ -464,13 +464,13 @@ Ratings na UI (só capa/metadata básica), emuladores, wishlist.
 
 ### Gate 100% funcional — Fase 3
 
-- [ ] Dedupe real em caso conhecido
-- [ ] Separar/aprovar funcionam
-- [ ] Capas offline
-- [ ] Busca + filtros
-- [ ] Launch multi-source
-- [ ] Regressão sync providers
-- [ ] Tag `phase-3-done`
+- [x] Dedupe real em caso conhecido (smoke `merge-smoke.ts`)
+- [x] Separar/aprovar funcionam
+- [x] Capas offline (cache disco + `cover://`)
+- [x] Busca + filtros (nome, plataforma, gênero, instalado)
+- [x] Launch multi-source
+- [x] Regressão sync providers
+- [x] Tag `phase-3-done`
 
 ---
 

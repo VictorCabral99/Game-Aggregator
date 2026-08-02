@@ -24,31 +24,57 @@ export interface DbHealth {
   error?: string;
 }
 
-export interface Game {
+export type GamePlatform = 'local' | 'steam' | 'epic' | 'gog' | 'amazon' | 'emulator' | 'manual';
+
+export interface GameSource {
   id: string;
+  platform: GamePlatform;
+  externalId: string | null;
   title: string;
+  installPath: string | null;
   executable: string | null;
   cwd: string | null;
+  isInstalled: boolean;
+  sizeBytes: number | null;
+  lastPlayedAt: string | null;
+  scannedAt: string;
+}
+
+export interface Game {
+  id: string;
+  slug: string;
+  title: string;
+  normalizedTitle: string;
   coverPath: string | null;
   coverUrl: string | null;
   notes: string | null;
-  platform: 'local' | 'steam' | 'epic' | 'gog' | 'amazon' | 'emulator' | 'manual';
-  externalId: string | null;
+  summary: string | null;
+  genres: string[];
   createdAt: string;
   updatedAt: string;
-  lastPlayedAt: string | null;
+  preferredSource: GameSource | null;
+  sources: GameSource[];
 }
 
 export interface CreateGameInput {
   title: string;
-  executable: string;
+  executable?: string;
   cwd?: string;
   coverPath?: string;
   coverUrl?: string;
   notes?: string;
+  summary?: string;
+  genres?: string[];
+  platform?: GamePlatform;
+  externalId?: string;
 }
 
 export type UpdateGameInput = Partial<CreateGameInput>;
+
+export interface CoversResult {
+  downloaded: number;
+  failed: number;
+}
 
 export interface SteamStatus {
   available: boolean;
@@ -84,7 +110,7 @@ export interface StoreScanResult {
 
 /** Status unificado de qualquer provider (Steam + sidecars). */
 export interface ProviderStatus {
-  id: Game['platform'];
+  id: GamePlatform;
   displayName: string;
   available: boolean;
   version: string | null;
@@ -99,7 +125,7 @@ export interface SyncAllResult {
   totalScanned: number;
   totalInserted: number;
   results: Array<{
-    id: Game['platform'];
+    id: GamePlatform;
     ok: boolean;
     total: number;
     inserted: number;
@@ -116,9 +142,14 @@ export interface DesktopApi {
   libraryUpdate(args: { id: string; patch: UpdateGameInput }): Promise<Game>;
   libraryRemove(id: string): Promise<{ ok: boolean }>;
   libraryLaunch(id: string): Promise<LaunchResult>;
+  libraryLaunchSource(sourceId: string): Promise<LaunchResult>;
+  libraryMergeSources(args: { targetGameId: string; sourceIds: string[] }): Promise<Game>;
+  librarySeparateSource(sourceId: string): Promise<Game>;
+  libraryPossibleDuplicates(): Promise<Array<{ a: Game; b: Game }>>;
   pickExe(): Promise<string | null>;
   pickCover(): Promise<string | null>;
   coverFromUrl(url: string): Promise<string>;
+  coversDownloadMissing(): Promise<CoversResult>;
   steamStatus(): Promise<SteamStatus>;
   steamScan(): Promise<SteamScanResult>;
   steamSetPath(path: string): Promise<string | null>;

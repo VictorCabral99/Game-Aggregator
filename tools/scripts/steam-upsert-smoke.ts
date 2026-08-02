@@ -32,13 +32,19 @@ assert(second.inserted === 0, `upsert second deve ser 0, foi ${second.inserted}`
 
 const list = repo.listByPlatform('steam');
 assert(list.length === 3, 'list steam');
-assert(list.every((g) => g.platform === 'steam' && g.externalId), 'platform/externalId setados');
-assert(list.every((g) => g.executable === null), 'sem executável para jogos de loja');
+assert(
+  list.every((g) => g.sources.some((s) => s.platform === 'steam' && s.externalId)),
+  'source steam/externalId setados'
+);
+assert(
+  list.every((g) => g.sources.every((s) => s.executable === null)),
+  'sem executável para jogos de loja'
+);
 
 // jogo local não é afetado pelo upsert
 const local = repo.add({ title: 'Notepad', executable: 'C:\\Windows\\System32\\notepad.exe' });
 assert(repo.countByPlatform('local') === 1, 'local count');
 repo.upsertMany('steam', games);
-assert(repo.get(local.id)?.platform === 'local', 'local preservado');
+assert(repo.get(local.id)?.sources.some((s) => s.platform === 'local'), 'local preservado');
 
 console.log('STEAM_UPSERT_SMOKE_OK');
