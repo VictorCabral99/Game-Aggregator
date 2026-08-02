@@ -35,4 +35,16 @@ export function registerLaunchHandlers(): void {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   });
+
+  ipcMain.handle('shell:open-external', async (_event, url: string) => {
+    if (!/^https?:\/\//i.test(url)) {
+      return { ok: false, error: 'URL inválida' };
+    }
+    try {
+      await shell.openExternal(url);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 }

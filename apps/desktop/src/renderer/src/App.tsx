@@ -18,6 +18,9 @@ import AboutModal from './components/AboutModal';
 import DuplicatesModal from './components/DuplicatesModal';
 import EmulationModal from './components/EmulationModal';
 import SettingsModal from './components/SettingsModal';
+import WishlistModal from './components/WishlistModal';
+import LoginModal from './components/LoginModal';
+import AccountsPanel from './components/AccountsPanel';
 import Toast from './components/Toast';
 import { useGamepadNav } from './hooks/useGamepadNav';
 import { setSoundsEnabled, uiBack, uiMove, uiSelect } from './lib/sounds';
@@ -30,7 +33,9 @@ type View =
   | { kind: 'about' }
   | { kind: 'duplicates' }
   | { kind: 'emulation' }
-  | { kind: 'settings' };
+  | { kind: 'wishlist' }
+  | { kind: 'settings' }
+  | { kind: 'accounts' };
 
 type PlatformFilter = 'all' | GamePlatform;
 
@@ -78,6 +83,7 @@ export default function App(): JSX.Element {
   const [sortBy, setSortBy] = useState<'name' | 'rating' | 'recent'>('name');
   const [minRating, setMinRating] = useState(0);
   const [hideNotes, setHideNotes] = useState(false);
+  const [user, setUser] = useState<{ id: string; email: string; name: string | null; image: string | null } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -102,6 +108,15 @@ export default function App(): JSX.Element {
     toastTimer.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const checkAuth = useCallback(async () => {
+    try {
+      const u = await window.api.authGetCurrentUser();
+      if (u) setUser(u);
+    } catch {
+      // sem sessão
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     const list = await window.api.libraryList();
     setGames(list);
@@ -122,10 +137,11 @@ export default function App(): JSX.Element {
     }
     void window.api.coversDownloadMissing().catch(() => undefined);
     void refreshRatings().catch(() => undefined);
+    void checkAuth().catch(() => undefined);
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
-  }, [refresh, notify, refreshRatings]);
+  }, [refresh, notify, refreshRatings, checkAuth]);
 
   // Settings de UX (Fase 5): modo TV, sons, fullscreen no boot.
   useEffect(() => {
@@ -437,6 +453,9 @@ export default function App(): JSX.Element {
           <button type="button" onClick={() => setView({ kind: 'emulation' })}>
             Emulação
           </button>
+          <button type="button" onClick={() => setView({ kind: 'wishlist' })}>
+            Wishlist
+          </button>
           <button type="button" onClick={() => setView({ kind: 'duplicates' })}>
             Duplicatas
           </button>
@@ -675,8 +694,33 @@ export default function App(): JSX.Element {
         />
       )}
 
+      {view.kind === 'wishlist' && (
+        <WishlistModal
+          onClose={() => setView({ kind: 'library' })}
+          onAlerts={(alerts) =>
+            notify(
+              alerts.map((a) => `${a.title} — ${a.currentPrice.toFixed(2)} ${a.currency}`).join(' · '),
+              'ok'
+            )
+          }
+        />
+      )}
+
       {view.kind === 'settings' && (
-        <SettingsModal onClose={() => setView({ kind: 'library' })} onChanged={() => undefined} />
+        <SettingsModal
+          onClose={() => setView({ kind: 'library' })}
+          onChanged={() => undefined}
+          onOpenAccounts={() => setView({ kind: 'accounts' })}
+        />
+      )}
+
+      {view.kind === 'accounts' && (
+        <AccountsPanel onClose={() => setView({ kind: 'settings' })} />
+      )}
+
+      {/* Login gate — mostra se não tem usuário */}
+      {!user && (
+        <LoginModal onSuccess={setUser} />
       )}
 
       <Toast message={toast?.message ?? ''} kind={toast?.kind ?? 'ok'} />

@@ -5,12 +5,20 @@ import type {
   LaunchRequest,
   StoreId,
   UpdateGameInput,
+  WishlistAddInput,
+  User,
+  Account,
+  PlatformAccount,
+  GoogleAuthStartResult,
+  GoogleAuthCallbackResult,
+  PlatformOAuthStartResult,
 } from '../shared/api';
 
 const api: DesktopApi = {
   launchExe: (req: LaunchRequest) => ipcRenderer.invoke('launch:exe', req),
   dbHealth: () => ipcRenderer.invoke('db:health'),
   openPath: (path: string) => ipcRenderer.invoke('shell:open-path', path),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   libraryList: () => ipcRenderer.invoke('library:list'),
   libraryAdd: (input: CreateGameInput) => ipcRenderer.invoke('library:add', input),
   libraryUpdate: (args: { id: string; patch: UpdateGameInput }) =>
@@ -56,6 +64,27 @@ const api: DesktopApi = {
   ratingsForLibrary: () => ipcRenderer.invoke('ratings:for-library'),
   ratingsSyncAll: () => ipcRenderer.invoke('ratings:sync-all'),
   ratingsSettings: () => ipcRenderer.invoke('ratings:settings'),
+  wishlistList: () => ipcRenderer.invoke('wishlist:list'),
+  wishlistAdd: (input: WishlistAddInput) => ipcRenderer.invoke('wishlist:add', input),
+  wishlistUpdate: (args: { id: string; patch: Partial<WishlistAddInput> }) =>
+    ipcRenderer.invoke('wishlist:update', args),
+  wishlistRemove: (id: string) => ipcRenderer.invoke('wishlist:remove', id),
+  wishlistSearch: (query: string) => ipcRenderer.invoke('wishlist:search', query),
+  wishlistSyncPrices: () => ipcRenderer.invoke('wishlist:sync-prices'),
+  wishlistImportSteam: () => ipcRenderer.invoke('wishlist:import-steam'),
+  wishlistSettings: () => ipcRenderer.invoke('wishlist:settings'),
+  // Auth
+  authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
+  authGetGoogleAuthUrl: () => ipcRenderer.invoke('auth:get-google-auth-url'),
+  authGoogleCallback: (params: { code: string; state: string }) =>
+    ipcRenderer.invoke('auth:google-callback', params),
+  authGetPlatformAuthUrl: (platform: 'steam' | 'gog' | 'epic' | 'amazon') =>
+    ipcRenderer.invoke('auth:get-platform-auth-url', platform),
+  authPlatformCallback: (params: { platform: string; code: string; state: string }) =>
+    ipcRenderer.invoke('auth:platform-callback', params),
+  authListPlatformAccounts: () => ipcRenderer.invoke('auth:list-platform-accounts'),
+  authUnlinkPlatform: (platform: string) => ipcRenderer.invoke('auth:unlink-platform', platform),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

@@ -191,10 +191,143 @@ export interface RatingsSyncResult {
   error?: string;
 }
 
+export interface PriceSnapshot {
+  id: string;
+  wishlistId: string;
+  source: string;
+  itadId: string | null;
+  currentPrice: number | null;
+  regularPrice: number | null;
+  cutPercent: number | null;
+  historicalLow: number | null;
+  historicalLowShop: string | null;
+  shopName: string | null;
+  currency: string | null;
+  url: string | null;
+  fetchedAt: string;
+}
+
+export interface WishlistEntry {
+  id: string;
+  gameId: string | null;
+  title: string;
+  itadId: string | null;
+  slug: string | null;
+  preferredStores: string[];
+  targetPrice: number | null;
+  currency: string;
+  alertEnabled: boolean;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+  price: PriceSnapshot | null;
+}
+
+export interface ITADSearchResult {
+  id: string;
+  slug: string;
+  title: string;
+  type: string;
+}
+
+export interface WishlistAddInput {
+  title: string;
+  itadId?: string | null;
+  slug?: string | null;
+  targetPrice?: number | null;
+  preferredStores?: string[];
+  alertEnabled?: boolean;
+  gameId?: string | null;
+}
+
+export interface WishlistAlert {
+  title: string;
+  currentPrice: number;
+  targetPrice: number;
+  currency: string;
+  url: string | null;
+}
+
+export interface WishlistSyncResult {
+  attempted: number;
+  updated: number;
+  noKey: boolean;
+  alerts: WishlistAlert[];
+  error?: string;
+}
+
+export interface SteamWishlistImportResult {
+  imported: number;
+  skipped: number;
+  error?: string | null;
+  warning?: string | null;
+}
+
+// Auth types
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+  emailVerified: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Account {
+  id: string;
+  userId: string;
+  type: string;
+  provider: string;
+  providerAccountId: string;
+  refreshToken: string | null;
+  accessToken: string | null;
+  expiresAt: number | null;
+  tokenType: string | null;
+  scope: string | null;
+  idToken: string | null;
+  sessionState: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlatformAccount {
+  id: string;
+  userId: string;
+  platform: 'steam' | 'gog' | 'epic' | 'amazon';
+  externalUserId: string;
+  displayName: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: string | null;
+  metadata: Record<string, unknown> | null;
+  linkedAt: string;
+  lastLibrarySyncAt: string | null;
+  lastWishlistSyncAt: string | null;
+  updatedAt: string;
+}
+
+export interface GoogleAuthStartResult {
+  authUrl: string;
+  state: string;
+}
+
+export interface GoogleAuthCallbackResult {
+  user: User;
+  account: Account;
+}
+
+export interface PlatformOAuthStartResult {
+  authUrl: string;
+  state: string;
+  platform: string;
+}
+
 export interface DesktopApi {
   launchExe(req: LaunchRequest): Promise<LaunchResult>;
   dbHealth(): Promise<DbHealth>;
   openPath(path: string): Promise<{ ok: boolean; error?: string }>;
+  openExternal(url: string): Promise<{ ok: boolean; error?: string }>;
   libraryList(): Promise<Game[]>;
   libraryAdd(input: CreateGameInput): Promise<Game>;
   libraryUpdate(args: { id: string; patch: UpdateGameInput }): Promise<Game>;
@@ -231,4 +364,21 @@ export interface DesktopApi {
   ratingsForLibrary(): Promise<Record<string, RatingsSummary | null>>;
   ratingsSyncAll(): Promise<RatingsSyncResult>;
   ratingsSettings(): Promise<{ rawgKey: string; steamKey: string }>;
+  wishlistList(): Promise<WishlistEntry[]>;
+  wishlistAdd(input: WishlistAddInput): Promise<WishlistEntry>;
+  wishlistUpdate(args: { id: string; patch: Partial<WishlistAddInput> }): Promise<WishlistEntry>;
+  wishlistRemove(id: string): Promise<{ ok: boolean }>;
+  wishlistSearch(query: string): Promise<ITADSearchResult[]>;
+  wishlistSyncPrices(): Promise<WishlistSyncResult>;
+  wishlistImportSteam(): Promise<SteamWishlistImportResult>;
+  wishlistSettings(): Promise<{ itadKey: string; country: string; steamId: string }>;
+  // Auth
+  authGetCurrentUser(): Promise<User | null>;
+  authGetGoogleAuthUrl(): Promise<GoogleAuthStartResult>;
+  authGoogleCallback(params: { code: string; state: string }): Promise<GoogleAuthCallbackResult>;
+  authGetPlatformAuthUrl(platform: 'steam' | 'gog' | 'epic' | 'amazon'): Promise<PlatformOAuthStartResult>;
+  authPlatformCallback(params: { platform: string; code: string; state: string }): Promise<PlatformAccount>;
+  authListPlatformAccounts(): Promise<PlatformAccount[]>;
+  authUnlinkPlatform(platform: string): Promise<{ ok: boolean }>;
+  authLogout(): Promise<{ ok: boolean }>;
 }

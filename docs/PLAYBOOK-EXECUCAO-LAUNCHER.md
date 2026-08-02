@@ -644,18 +644,18 @@ Checkout in-app, auto-purchase.
 
 ### Breakdown
 
-| ID | Tarefa |
-|----|--------|
-| P7-01 | Schema `wishlist_entries`, `price_snapshots` |
-| P7-02 | Add manual (busca título ITAD/RAWG) + desambiguação |
-| P7-03 | Import wishlist Steam (API/perfil — padrão web) |
-| P7-04 | Batch preços ITAD + cache 6–12h |
-| P7-05 | UI lista: preço, cut, low, shop |
-| P7-06 | Open offer URL / steam:// |
-| P7-07 | Target price + alert in-app |
-| P7-08 | Notificação Windows (electron Notification) opt-in |
-| P7-09 | Preferred stores por item |
-| P7-10 | Sync periódico com app aberta |
+| ID | Tarefa | Status |
+|----|--------|-------|
+| P7-01 | Schema `wishlist_entries`, `price_snapshots` | ✅ migration v7 + `WishlistRepository` |
+| P7-02 | Add manual (busca título ITAD/RAWG) + desambiguação | ✅ busca ITAD na UI + add manual (título) |
+| P7-03 | Import wishlist Steam (API/perfil — padrão web) | ✅ `IWishlistService/GetWishlist` + appdetails (chunks de 5) |
+| P7-04 | Batch preços ITAD + cache 6–12h | ✅ `syncWishlistPrices` (TTL 6h, concurrency 2, cache `api_cache`) |
+| P7-05 | UI lista: preço, cut, low, shop | ✅ `WishlistModal` com preço/cut/mín. histórico/loja |
+| P7-06 | Open offer URL / steam:// | ✅ `shell:open-external` + botão "Abrir oferta" |
+| P7-07 | Target price + alert in-app | ✅ target por item + toast de alerta no sync |
+| P7-08 | Notificação Windows (electron Notification) opt-in | ✅ setting `wishlist.notifications` |
+| P7-09 | Preferred stores por item | ✅ campo "Lojas pref." por entrada (JSON) |
+| P7-10 | Sync periódico com app aberta | ✅ `setInterval` 6h no main |
 
 ### Script de teste
 
@@ -668,13 +668,14 @@ Checkout in-app, auto-purchase.
 
 ### Gate 100% funcional — Fase 7
 
-- [ ] Wishlist CRUD + preços
-- [ ] Historical low visível quando existir
-- [ ] Alerta testado
-- [ ] Links corretos
-- [ ] Cache OK
-- [ ] Biblioteca/ratings intactos
-- [ ] Tag `phase-7-done`
+- [x] Wishlist CRUD + preços
+- [x] Historical low visível quando existir
+- [x] Alerta testado (condição simulada: preço ≤ alvo dispara toast + notificação opt-in)
+- [x] Links corretos (oferta abre no navegador)
+- [x] Cache OK (TTL 6h + `api_cache`)
+- [x] Biblioteca/ratings intactos (`smoke` suite verde)
+- [x] TypeScript/build desktop verde
+- [x] Tag `phase-7-done`
 
 ---
 

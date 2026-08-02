@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 interface SettingsModalProps {
   onClose: () => void;
   onChanged: () => void;
+  onOpenAccounts: () => void;
 }
 
 interface SettingRow {
@@ -32,11 +33,19 @@ const ROWS: SettingRow[] = [
     label: 'Esconder notas',
     hint: 'Não exibe scores na grade nem na ficha do jogo',
   },
+  {
+    key: 'wishlist.notifications',
+    label: 'Notificações da wishlist',
+    hint: 'Aviso do Windows quando um jogo da wishlist bater o preço alvo',
+  },
 ];
 
-export default function SettingsModal({ onClose, onChanged }: SettingsModalProps): JSX.Element {
+export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: SettingsModalProps): JSX.Element {
   const [values, setValues] = useState<Record<string, boolean>>({});
   const [rawgKey, setRawgKey] = useState('');
+  const [itadKey, setItadKey] = useState('');
+  const [itadCountry, setItadCountry] = useState('');
+  const [steamId, setSteamId] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -49,6 +58,10 @@ export default function SettingsModal({ onClose, onChanged }: SettingsModalProps
       setValues(entries);
       const keys = await window.api.ratingsSettings();
       setRawgKey(keys.rawgKey);
+      const wish = await window.api.wishlistSettings();
+      setItadKey(wish.itadKey);
+      setItadCountry(wish.country);
+      setSteamId(wish.steamId);
       setLoading(false);
     };
     void load();
@@ -69,6 +82,17 @@ export default function SettingsModal({ onClose, onChanged }: SettingsModalProps
 
   const saveRawgKey = async () => {
     await window.api.settingsSet('keys.rawg', rawgKey.trim());
+    onChanged();
+  };
+
+  const saveItad = async () => {
+    await window.api.settingsSet('keys.itad', itadKey.trim());
+    await window.api.settingsSet('itad.country', itadCountry.trim() || 'BR');
+    onChanged();
+  };
+
+  const saveSteamId = async () => {
+    await window.api.settingsSet('steam.id', steamId.trim());
     onChanged();
   };
 
@@ -117,6 +141,61 @@ export default function SettingsModal({ onClose, onChanged }: SettingsModalProps
                 onChange={(e) => setRawgKey(e.target.value)}
                 onBlur={() => void saveRawgKey()}
               />
+            </div>
+            <div className="settings__row settings__row--key">
+              <span className="settings__text">
+                <strong>Chave IsThereAnyDeal</strong>
+                <small>Preços e descontos da wishlist (isthereanydeal.com/apps)</small>
+              </span>
+              <input
+                type="password"
+                className="settings__key-input"
+                placeholder="ITAD_API_KEY"
+                value={itadKey}
+                onChange={(e) => setItadKey(e.target.value)}
+                onBlur={() => void saveItad()}
+              />
+            </div>
+            <div className="settings__row settings__row--key">
+              <span className="settings__text">
+                <strong>País / moeda ITAD</strong>
+                <small>Preços exibidos nesse país (ex.: BR, US, AR)</small>
+              </span>
+              <input
+                type="text"
+                className="settings__key-input"
+                placeholder="BR"
+                value={itadCountry}
+                onChange={(e) => setItadCountry(e.target.value)}
+                onBlur={() => void saveItad()}
+              />
+            </div>
+            <div className="settings__row settings__row--key">
+              <span className="settings__text">
+                <strong>Steam ID (steam64)</strong>
+                <small>Para importar a wishlist Steam (perfil com wishlist pública)</small>
+              </span>
+              <input
+                type="text"
+                className="settings__key-input"
+                placeholder="7656119…"
+                value={steamId}
+                onChange={(e) => setSteamId(e.target.value)}
+                onBlur={() => void saveSteamId()}
+              />
+            </div>
+            <div className="settings__row">
+              <span className="settings__text">
+                <strong>Contas de lojas conectadas</strong>
+                <small>Steam, Epic, GOG, Amazon — sincroniza biblioteca e wishlist</small>
+              </span>
+              <button
+                type="button"
+                className="settings__accounts-btn"
+                onClick={() => onOpenAccounts?.()}
+              >
+                Gerenciar
+              </button>
             </div>
           </div>
         )}

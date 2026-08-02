@@ -171,6 +171,96 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
       );
     `,
   },
+  {
+    version: 7,
+    sql: `
+      CREATE TABLE IF NOT EXISTS wishlist_entries (
+        id               TEXT PRIMARY KEY,
+        game_id          TEXT REFERENCES canonical_games(id) ON DELETE SET NULL,
+        title            TEXT NOT NULL,
+        itad_id          TEXT,
+        slug             TEXT,
+        preferred_stores TEXT,
+        target_price     REAL,
+        currency         TEXT NOT NULL DEFAULT 'BRL',
+        alert_enabled    INTEGER NOT NULL DEFAULT 1,
+        note             TEXT,
+        created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_wishlist_itad
+        ON wishlist_entries (itad_id) WHERE itad_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS price_snapshots (
+        id                   TEXT PRIMARY KEY,
+        wishlist_id          TEXT NOT NULL REFERENCES wishlist_entries(id) ON DELETE CASCADE,
+        source               TEXT NOT NULL DEFAULT 'itad',
+        itad_id              TEXT,
+        current_price        REAL,
+        regular_price        REAL,
+        cut_percent          INTEGER,
+        historical_low       REAL,
+        historical_low_shop  TEXT,
+        shop_name            TEXT,
+        currency             TEXT,
+        url                  TEXT,
+        fetched_at           TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_prices_wishlist ON price_snapshots (wishlist_id, fetched_at);
+    `,
+  },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE IF NOT EXISTS users (
+        id              TEXT PRIMARY KEY,
+        email           TEXT NOT NULL UNIQUE,
+        name            TEXT,
+        image           TEXT,
+        email_verified  TEXT,
+        created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS accounts (
+        id                    TEXT PRIMARY KEY,
+        user_id               TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type                  TEXT NOT NULL,
+        provider              TEXT NOT NULL,
+        provider_account_id   TEXT NOT NULL,
+        refresh_token         TEXT,
+        access_token          TEXT,
+        expires_at            INTEGER,
+        token_type            TEXT,
+        scope                 TEXT,
+        id_token              TEXT,
+        session_state         TEXT,
+        created_at            TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at            TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_provider_account
+        ON accounts (provider, provider_account_id);
+      CREATE INDEX IF NOT EXISTS idx_accounts_user ON accounts (user_id);
+
+      CREATE TABLE IF NOT EXISTS platform_accounts (
+        id                  TEXT PRIMARY KEY,
+        user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        platform            TEXT NOT NULL, -- 'steam', 'gog', 'epic', 'amazon'
+        external_user_id    TEXT NOT NULL,
+        display_name        TEXT,
+        access_token        TEXT,
+        refresh_token       TEXT,
+        token_expires_at    TEXT,
+        metadata            TEXT, -- JSON
+        linked_at           TEXT NOT NULL DEFAULT (datetime('now')),
+        last_library_sync_at TEXT,
+        last_wishlist_sync_at TEXT,
+        updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_platform_accounts_user_platform
+        ON platform_accounts (user_id, platform);
+    `,
+  },
 ];
 
 export function applyMigrations(db: DatabaseSync): void {

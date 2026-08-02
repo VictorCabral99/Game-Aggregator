@@ -14,7 +14,8 @@
     "dev:desktop": "npm run build -w @gagg/core && npm run dev -w @gagg/desktop",
     "build:desktop": "npm run build -w @gagg/core && npm run build -w @gagg/desktop",
     "typecheck": "npm run typecheck -w @gagg/desktop && npm run typecheck -w @gagg/core && npm run typecheck -w @gagg/providers-meta",
-    "smoke:sidecars": "node tools/scripts/smoke-sidecars.mjs"
+    "smoke:sidecars": "node tools/scripts/smoke-sidecars.mjs",
+    "smoke:wishlist": "node tools/scripts/wishlist-smoke.ts"
   },
   "dependencies": {
     "next": "14.2.5",

@@ -5,6 +5,8 @@ import type { DbHealth } from '../../shared/api';
 import { applyMigrations } from './migrations';
 import { LibraryRepository } from './games';
 import { RatingsRepository } from './ratings';
+import { WishlistRepository } from './wishlist';
+import { AuthRepository } from './auth';
 
 let db: DatabaseSync | null = null;
 let dbPath = '';
@@ -28,6 +30,14 @@ export function getLibraryRepository(): LibraryRepository {
 
 export function getRatingsRepository(): RatingsRepository {
   return new RatingsRepository(initDatabase());
+}
+
+export function getWishlistRepository(): WishlistRepository {
+  return new WishlistRepository(initDatabase());
+}
+
+export function getAuthRepository(): AuthRepository {
+  return new AuthRepository(initDatabase());
 }
 
 export function getSetting(key: string): string | null {
