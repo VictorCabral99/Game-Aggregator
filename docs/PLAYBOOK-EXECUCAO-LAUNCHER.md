@@ -489,52 +489,52 @@ Scraper completo, netplay, distribuição de BIOS/ROMs.
 
 #### Bloco A — modelo Console (dias 1–3)
 
-| ID | Tarefa |
-|----|--------|
-| P4-01 | `consoles.json` schema: `id`, `name`, `shortName`, `extensions[]`, `biosHint`, `defaultEmulator`, `defaultFolder` |
-| P4-02 | `emulators.json` schema: perfis de binário (`id`, `name`, `binaryPath`, `argsTemplate`) |
-| P4-03 | Mapa **console → opções de emulador**: `console.<id>.emulatorOptions[]` (`{ emulatorId, core?, args? }`) |
-| P4-04 | Migration: `game_sources` ganha `console_id`; tabela `consoles` + `console_emulator_options` |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P4-01 | `consoles.json` schema: `id`, `name`, `shortName`, `extensions[]`, `biosHint`, `defaultEmulator`, `defaultFolder` | ✅ catálogo default em `emulation/catalog.ts` + override via `consoles.json` |
+| P4-02 | `emulators.json` schema: perfis de binário (`id`, `name`, `binaryPath`, `argsTemplate`) | ✅ `EmulatorProfile` + detecção de path em paths comuns |
+| P4-03 | Mapa **console → opções de emulador**: `console.<id>.emulatorOptions[]` (`{ emulatorId, core?, args? }`) | ✅ `emulatorOptions` por console (RetroArch cores / standalone) |
+| P4-04 | Migration: `game_sources` ganha `console_id`; tabela `consoles` + `console_emulator_options` | ✅ migration v5 + seed de 7 consoles |
 
 #### Bloco B — navegação e emulador relativo (dias 4–6)
 
-| ID | Tarefa |
-|----|--------|
-| P4-05 | UI “Emulação” (entrada tipo pasta) → grade/list de consoles com contagem de jogos; entrar mostra a grade daquele console |
-| P4-06 | Setting `console.<id>.emulator`: emulador ativo, trocável na UI entre as opções pré-definidas |
-| P4-07 | Launch resolve o emulador ativo do console: `"$retroarch" -L "$core" "$rom"` / PCSX2 `-batch -- "%rom%"` |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P4-05 | UI “Emulação” (entrada tipo pasta) → grade/list de consoles com contagem de jogos; entrar mostra a grade daquele console | ✅ botão "Emulação" → `EmulationModal` → grade de consoles → grade de jogos |
+| P4-06 | Setting `console.<id>.emulator`: emulador ativo, trocável na UI entre as opções pré-definidas | ✅ dropdown no console + `emulationSetEmulator` |
+| P4-07 | Launch resolve o emulador ativo do console: `"$retroarch" -L "$core" "$rom"` / PCSX2 `-batch -- "%rom%"` | ✅ `launchRom` resolve emulador ativo + args template |
 
 #### Bloco C — pasta padrão, importação e organização (dias 7–10)
 
-| ID | Tarefa |
-|----|--------|
-| P4-08 | **Pasta padrão por console** (`console.<id>.defaultFolder`): scan reconhece ROMs válidos pela extensão e cria/atualiza `GameSource` `emulator` com `console_id` — modelo drop-in |
-| P4-09 | Mapeamento manual de ROM (apontar arquivo) como alternativa à pasta padrão |
-| P4-10 | Título limpo a partir do filename |
-| P4-11 | Import/scan async + progress para pastas grandes (recursivo, ignora ocultas) |
-| P4-12 | Filtro/categoria por console (retro agrupado) |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P4-08 | **Pasta padrão por console** (`console.<id>.defaultFolder`): scan reconhece ROMs válidos pela extensão e cria/atualiza `GameSource` `emulator` com `console_id` — modelo drop-in | ✅ `scanConsoleFolder` + `upsertRom` idempotente; scan automático ao abrir console com pasta |
+| P4-09 | Mapeamento manual de ROM (apontar arquivo) como alternativa à pasta padrão | ✅ `emulation:map-rom` (file picker) |
+| P4-10 | Título limpo a partir do filename | ✅ `cleanRomTitle` (No-Intro/TOSEC/revisões) em `emulation/rom.ts` |
+| P4-11 | Import/scan async + progress para pastas grandes (recursivo, ignora ocultas) | ✅ scan recursivo (depth ≤5, ignora ocultas) + evento `emulation:scan-progress` |
+| P4-12 | Filtro/categoria por console (retro agrupado) | ✅ chip "Retro" na biblioteca + `listByConsole` |
 
 ### Script de teste
 
-1. Configurar RetroArch + core SNES e apontar a pasta padrão do SNES.  
-2. Colocar ROMs na pasta padrão → jogos aparecem **dentro do console SNES** (sem import manual).  
-3. Launch 1 ROM.  
-4. Copiar um ROM novo para a pasta padrão → re-scan reconhece sozinho.  
-5. Trocar o emulador ativo do SNES na UI (ex.: bsnes) → launch usa o novo, sem reimportar.  
-6. Configurar 2º console/emulador (PS2) + 1 ROM.  
-7. Filtro por console.  
+1. Configurar RetroArch + core SNES e apontar a pasta padrão do SNES.
+2. Colocar ROMs na pasta padrão → jogos aparecem **dentro do console SNES** (sem import manual).
+3. Launch 1 ROM.
+4. Copiar um ROM novo para a pasta padrão → re-scan reconhece sozinho.
+5. Trocar o emulador ativo do SNES na UI (ex.: bsnes) → launch usa o novo, sem reimportar.
+6. Configurar 2º console/emulador (PS2) + 1 ROM.
+7. Filtro por console.
 8. Sem BIOS (PS2): erro legível, não crash.
 
 ### Gate 100% funcional — Fase 4
 
-- [ ] Entrada “Emulação” → consoles → jogos por console
-- [ ] ROM colocado na pasta padrão é reconhecido sem reimport manual
-- [ ] Import + launch RetroArch dentro de um console
-- [ ] Troca de emulador ativo funciona (sem reimport)
-- [ ] Segundo console/emulador OK
-- [ ] Filtro por console
-- [ ] Lojas/local intactos
-- [ ] Tag `phase-4-done`
+- [x] Entrada “Emulação” → consoles → jogos por console
+- [x] ROM colocado na pasta padrão é reconhecido sem reimport manual (`emulation-smoke.ts`)
+- [x] Import + launch RetroArch dentro de um console
+- [x] Troca de emulador ativo funciona (sem reimport)
+- [x] Segundo console/emulador OK
+- [x] Filtro por console
+- [x] Lojas/local intactos
+- [x] Tag `phase-4-done`
 
 ---
 

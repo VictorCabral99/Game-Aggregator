@@ -96,6 +96,58 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
         SELECT 's-' || id, id, platform, external_id, title, NULL, executable, cwd, 1, NULL, last_played_at, created_at, updated_at FROM games;
     `,
   },
+  {
+    version: 5,
+    sql: `
+      CREATE TABLE IF NOT EXISTS consoles (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        short_name      TEXT NOT NULL,
+        extensions_json TEXT NOT NULL,
+        bios_hint       TEXT,
+        default_emulator TEXT NOT NULL,
+        default_folder  TEXT NOT NULL DEFAULT ''
+      );
+
+      CREATE TABLE IF NOT EXISTS console_emulator_options (
+        console_id  TEXT NOT NULL REFERENCES consoles(id) ON DELETE CASCADE,
+        emulator_id TEXT NOT NULL,
+        core        TEXT,
+        args        TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (console_id, emulator_id, core)
+      );
+
+      ALTER TABLE game_sources ADD COLUMN console_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_sources_console ON game_sources (console_id);
+
+      INSERT INTO consoles (id, name, short_name, extensions_json, bios_hint, default_emulator, default_folder) VALUES
+        ('nes',     'Nintendo Entertainment System', 'NES',     '["nes"]',          NULL, 'retroarch', ''),
+        ('snes',    'Super Nintendo Entertainment System', 'SNES', '["smc","sfc"]', NULL, 'retroarch', ''),
+        ('gba',     'Game Boy Advance',              'GBA',     '["gba"]',          NULL, 'retroarch', ''),
+        ('gbc',     'Game Boy / Game Boy Color',     'GB(C)',   '["gb","gbc"]',     NULL, 'retroarch', ''),
+        ('genesis', 'Sega Genesis / Mega Drive',     'Genesis', '["md","gen","bin"]', NULL, 'retroarch', ''),
+        ('ps1',     'PlayStation',                   'PS1',     '["cue","chd","pbp","bin"]', 'PS1 BIOS', 'duckstation', ''),
+        ('ps2',     'PlayStation 2',                 'PS2',     '["iso","chd","cso"]', 'PS2 BIOS', 'pcsx2', '');
+
+      INSERT INTO console_emulator_options (console_id, emulator_id, core, args, sort_order) VALUES
+        ('nes',     'retroarch', 'nestopia_libretro.dll', NULL, 0),
+        ('nes',     'retroarch', 'fceumm_libretro.dll',   NULL, 1),
+        ('nes',     'bsnes',     NULL, NULL, 2),
+        ('snes',    'retroarch', 'snes9x_libretro.dll',   NULL, 0),
+        ('snes',    'retroarch', 'bsnes_libretro.dll',    NULL, 1),
+        ('snes',    'bsnes',     NULL, NULL, 2),
+        ('gba',     'retroarch', 'mgba_libretro.dll',     NULL, 0),
+        ('gba',     'mGBA',      NULL, NULL, 1),
+        ('gbc',     'retroarch', 'gambatte_libretro.dll', NULL, 0),
+        ('genesis', 'retroarch', 'genesis_plus_gx_libretro.dll', NULL, 0),
+        ('genesis', 'retroarch', 'picodrive_libretro.dll', NULL, 1),
+        ('ps1',     'duckstation', NULL, NULL, 0),
+        ('ps1',     'retroarch', 'pcsx_rearmed_libretro.dll', NULL, 1),
+        ('ps2',     'pcsx2',     NULL, NULL, 0),
+        ('ps2',     'retroarch', 'pcsx2_libretro.dll',    NULL, 1);
+    `,
+  },
 ];
 
 export function applyMigrations(db: DatabaseSync): void {

@@ -8,6 +8,7 @@ import { registerCoverHandlers } from './ipc/cover';
 import { registerSteamHandlers } from './ipc/steam';
 import { registerStoreHandlers } from './ipc/store';
 import { registerProviderHandlers } from './ipc/providers';
+import { registerEmulationHandlers } from './ipc/emulation';
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'cover', privileges: { secure: true, supportFetchAPI: true, stream: true } },
@@ -57,6 +58,7 @@ app.whenReady().then(() => {
   registerSteamHandlers();
   registerStoreHandlers();
   registerProviderHandlers();
+  registerEmulationHandlers();
 
   createWindow();
 

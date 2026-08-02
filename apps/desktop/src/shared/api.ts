@@ -38,6 +38,7 @@ export interface GameSource {
   sizeBytes: number | null;
   lastPlayedAt: string | null;
   scannedAt: string;
+  consoleId: string | null;
 }
 
 export interface Game {
@@ -133,6 +134,31 @@ export interface SyncAllResult {
   }>;
 }
 
+export interface ConsoleView {
+  id: string;
+  name: string;
+  shortName: string;
+  extensions: string[];
+  biosHint: string | null;
+  gamesCount: number;
+  defaultFolder: string;
+  activeEmulator: string;
+  emulatorOptions: EmulatorView[];
+}
+
+export interface EmulatorView {
+  id: string;
+  name: string;
+  core: string | null;
+  args: string | null;
+  detectedPath: string | null;
+}
+
+export interface RomScanResult {
+  found: number;
+  added: number;
+}
+
 export interface DesktopApi {
   launchExe(req: LaunchRequest): Promise<LaunchResult>;
   dbHealth(): Promise<DbHealth>;
@@ -157,4 +183,14 @@ export interface DesktopApi {
   storeScan(id: StoreId): Promise<StoreScanResult>;
   providersList(): Promise<ProviderStatus[]>;
   providersSyncAll(): Promise<SyncAllResult>;
+  emulationListConsoles(): Promise<ConsoleView[]>;
+  emulationGames(consoleId: string): Promise<Game[]>;
+  emulationSetEmulator(args: { consoleId: string; emulatorId: string }): Promise<void>;
+  emulationSetFolder(args: { consoleId: string; folder: string }): Promise<void>;
+  emulationScan(consoleId: string): Promise<RomScanResult>;
+  emulationPickFolder(consoleId: string): Promise<{ folder: string; scan: RomScanResult } | null>;
+  emulationMapRom(consoleId: string): Promise<{ romPath: string } | null>;
+  emulationRemoveRom(sourceId: string): Promise<{ ok: boolean }>;
+  emulationLaunch(sourceId: string): Promise<LaunchResult>;
+  onEmulationScanProgress(cb: (data: { consoleId?: string; scanned: number; total: number }) => void): () => void;
 }

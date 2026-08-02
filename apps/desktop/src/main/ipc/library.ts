@@ -69,6 +69,14 @@ function launchSource(sourceId: string) {
   const source = repo.getSource(sourceId);
   if (!source) return Promise.resolve({ ok: false, error: 'Fonte não encontrada' });
 
+  if (source.platform === 'emulator') {
+    return import('../emulation').then(async ({ launchRom }) => {
+      const res = await launchRom(source);
+      if (res.ok) repo.touchSourcePlayed(source.id);
+      return res;
+    });
+  }
+
   if (source.platform !== 'local') {
     if (!source.externalId) {
       return Promise.resolve({ ok: false, error: 'Jogo sem id externo' });

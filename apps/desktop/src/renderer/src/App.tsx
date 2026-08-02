@@ -15,6 +15,7 @@ import GameFormModal from './components/GameFormModal';
 import ProvidersModal from './components/ProvidersModal';
 import AboutModal from './components/AboutModal';
 import DuplicatesModal from './components/DuplicatesModal';
+import EmulationModal from './components/EmulationModal';
 import Toast from './components/Toast';
 
 type View =
@@ -23,7 +24,8 @@ type View =
   | { kind: 'form'; gameId: string | null }
   | { kind: 'providers' }
   | { kind: 'about' }
-  | { kind: 'duplicates' };
+  | { kind: 'duplicates' }
+  | { kind: 'emulation' };
 
 type PlatformFilter = 'all' | GamePlatform;
 
@@ -49,6 +51,7 @@ const FILTER_OPTIONS: Array<{ id: PlatformFilter; label: string }> = [
   { id: 'epic', label: 'Epic' },
   { id: 'gog', label: 'GOG' },
   { id: 'amazon', label: 'Amazon' },
+  { id: 'emulator', label: 'Retro' },
 ];
 
 export default function App(): JSX.Element {
@@ -275,6 +278,9 @@ export default function App(): JSX.Element {
           <button type="button" onClick={() => setView({ kind: 'providers' })}>
             Providers
           </button>
+          <button type="button" onClick={() => setView({ kind: 'emulation' })}>
+            Emulação
+          </button>
           <button type="button" onClick={() => setView({ kind: 'duplicates' })}>
             Duplicatas
           </button>
@@ -422,6 +428,14 @@ export default function App(): JSX.Element {
         <DuplicatesModal
           onClose={() => setView({ kind: 'library' })}
           onMerged={() => void refresh()}
+        />
+      )}
+
+      {view.kind === 'emulation' && (
+        <EmulationModal
+          onClose={() => setView({ kind: 'library' })}
+          onLaunch={launch}
+          onChanged={() => void refresh()}
         />
       )}
 

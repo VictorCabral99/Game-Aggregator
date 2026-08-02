@@ -11,7 +11,8 @@ Launcher unificado para Windows. **Não é um fork do Heroic**: reusa sidecars
 - **Fase 2B–D** ✅ providers Epic (Legendary), GOG (gogdl) e Amazon (Nile) — dependem dos sidecars
 - **Fase 2E** ✅ integração — Sync tudo, tela Providers, filtro por plataforma, About com atribuições
 - **Fase 3** ✅ biblioteca unificada — canonical_games + game_sources (dedupe/auto-merge), capas offline em cache disco, gêneros, busca e filtros
-- **Fase 4+** em andamento — emuladores e retro
+- **Fase 4** ✅ consoles retro — entrada “Emulação” (tipo pasta) → consoles → jogos; pasta padrão drop-in por console; emulador relativo trocável; mapeamento manual de ROM; filtro Retro
+- **Fase 5+** em andamento
 
 ## Sidecars (Epic/GOG/Amazon)
 
@@ -45,7 +46,22 @@ node tools/scripts/merge-smoke.ts           # auto-merge + separar (Fase 3)
 node tools/scripts/normalize-smoke.ts       # normalizeTitle (Fase 3)
 node tools/scripts/migration-upgrade-smoke.ts  # upgrade v2→v4 (Fase 3)
 node tools/scripts/perf-filter-smoke.ts     # filtro 200 itens <300ms (Fase 3)
+node tools/scripts/emulation-smoke.ts       # consoles retro + drop-in (Fase 4)
 ```
+
+## Emulação (Fase 4)
+
+- Entrada **“Emulação”** no header → lista de consoles (NES, SNES, GBA, GB(C), Genesis, PS1, PS2).
+- Cada console tem **pasta padrão** (drop-in): coloque ROMs válidos lá e escaneie —
+  o app reconhece pela extensão e lista sozinho (scan automático ao abrir o console com pasta configurada).
+- **Emulador relativo**: cada console tem opções pré-definidas (ex.: SNES via RetroArch `snes9x` ou bsnes);
+  troque na tela do console e o launch passa a usar o novo, sem reimportar.
+- Mapeamento manual de ROM (apontar arquivo) também disponível.
+- Catálogo editável via `consoles.json`/`emulators.json` em `%APPDATA%/@gagg/desktop/`
+  (se existirem, substituem o catálogo default em `src/main/emulation/catalog.ts`).
+- Launch: RetroArch `-L core rom` / PCSX2 `-batch -- rom` / DuckStation `rom` (path do binário
+  detectado em paths comuns ou configurável em `emulator.<id>.path` nas settings).
+- Sem BIOS (PS2): mensagem de erro legível do emulador, sem crash.
 
 ## Instalador
 

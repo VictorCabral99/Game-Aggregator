@@ -20,6 +20,8 @@ export interface GameSource {
   scannedAt: string;
   createdAt: string;
   updatedAt: string;
+  /** Console retro ao qual o ROM pertence (Fase 4). Null para jogos não-retro. */
+  consoleId: string | null;
 }
 
 export interface Game {
@@ -79,6 +81,7 @@ interface SourceRow {
   scanned_at: string;
   created_at: string;
   updated_at: string;
+  console_id: string | null;
 }
 
 interface CanonicalRow {
@@ -112,6 +115,7 @@ function mapSource(row: SourceRow): GameSource {
     scannedAt: row.scanned_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    consoleId: row.console_id ?? null,
   };
 }
 
@@ -182,6 +186,26 @@ export class LibraryRepository {
       )
       .all(platform) as unknown as CanonicalRow[];
     return rows.map((r) => this.mapGame(r));
+  }
+
+  listByConsole(consoleId: string): Game[] {
+    const rows = this.db
+      .prepare(
+        `SELECT c.* FROM canonical_games c
+         JOIN game_sources s ON s.game_id = c.id
+         WHERE s.console_id = ?
+         GROUP BY c.id
+         ORDER BY c.title COLLATE NOCASE ASC`
+      )
+      .all(consoleId) as unknown as CanonicalRow[];
+    return rows.map((r) => this.mapGame(r));
+  }
+
+  countByConsole(consoleId: string): number {
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM game_sources WHERE console_id = ?`)
+      .get(consoleId) as { n: number };
+    return row.n;
   }
 
   get(id: string): Game | null {
@@ -337,6 +361,68 @@ export class LibraryRepository {
       inserted++;
     }
     return { inserted };
+  }
+
+  /**
+   * ROM drop-in (P4-08): identifica um ROM válido pela extensão e o adiciona
+   * ao console. Idempotente por (platform=emulator, console_id, install_path).
+   * Retorna a Game criada ou null se o arquivo não é um ROM conhecido do console.
+   */
+  upsertRom(consoleId: string, romPath: string, title: string): Game | null {
+    const existing = this.db
+      .prepare(
+        `SELECT * FROM game_sources WHERE platform = 'emulator' AND console_id = ? AND install_path = ?`
+      )
+      .get(consoleId, romPath) as SourceRow | undefined;
+    const now = new Date().toISOString();
+    const cleanTitle = title.trim();
+
+    if (existing) {
+      this.db
+        .prepare(`UPDATE game_sources SET title = ?, updated_at = ? WHERE id = ?`)
+        .run(cleanTitle, now, existing.id);
+      return this.get(existing.game_id);
+    }
+
+    const gameId = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO canonical_games (id, slug, title, normalized_title, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        gameId,
+        `c-${randomUUID().replace(/-/g, '')}`,
+        cleanTitle,
+        normalizeTitle(cleanTitle),
+        now,
+        now
+      );
+    this.db
+      .prepare(
+        `INSERT INTO game_sources (id, game_id, platform, external_id, title, install_path, executable, cwd, is_installed, size_bytes, raw_json, last_played_at, scanned_at, created_at, updated_at, console_id)
+         VALUES (?, ?, 'emulator', ?, ?, ?, NULL, NULL, 1, NULL, NULL, NULL, ?, ?, ?, ?)`
+      )
+      .run(
+        `s-${randomUUID().replace(/-/g, '')}`,
+        gameId,
+        `rom:${consoleId}:${romPath}`,
+        cleanTitle,
+        romPath,
+        now,
+        now,
+        now,
+        consoleId
+      );
+    return this.get(gameId);
+  }
+
+  /** Remove um ROM do console (não apaga o arquivo). */
+  removeRom(sourceId: string): void {
+    const source = this.getSource(sourceId);
+    if (!source || source.platform !== 'emulator') return;
+    this.db.prepare(`DELETE FROM game_sources WHERE id = ?`).run(sourceId);
+    this.pruneEmptyCanonicals();
   }
 
   update(id: string, patch: UpdateGameInput): Game | null {

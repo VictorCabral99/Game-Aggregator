@@ -33,6 +33,23 @@ const api: DesktopApi = {
   storeScan: (id: StoreId) => ipcRenderer.invoke(`${id}:scan`),
   providersList: () => ipcRenderer.invoke('providers:list'),
   providersSyncAll: () => ipcRenderer.invoke('providers:sync-all'),
+  emulationListConsoles: () => ipcRenderer.invoke('emulation:list-consoles'),
+  emulationGames: (consoleId: string) => ipcRenderer.invoke('emulation:games', consoleId),
+  emulationSetEmulator: (args: { consoleId: string; emulatorId: string }) =>
+    ipcRenderer.invoke('emulation:set-emulator', args),
+  emulationSetFolder: (args: { consoleId: string; folder: string }) =>
+    ipcRenderer.invoke('emulation:set-folder', args),
+  emulationScan: (consoleId: string) => ipcRenderer.invoke('emulation:scan', consoleId),
+  emulationPickFolder: (consoleId: string) => ipcRenderer.invoke('emulation:pick-folder', consoleId),
+  emulationMapRom: (consoleId: string) => ipcRenderer.invoke('emulation:map-rom', { consoleId }),
+  emulationRemoveRom: (sourceId: string) => ipcRenderer.invoke('emulation:remove-rom', sourceId),
+  emulationLaunch: (sourceId: string) => ipcRenderer.invoke('emulation:launch', sourceId),
+  onEmulationScanProgress: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, data: { consoleId?: string; scanned: number; total: number }) =>
+      cb(data);
+    ipcRenderer.on('emulation:scan-progress', listener);
+    return () => ipcRenderer.removeListener('emulation:scan-progress', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);
