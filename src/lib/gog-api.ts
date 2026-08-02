@@ -31,17 +31,14 @@ export class GogAPI {
     refresh_token?: string;
     expires_in?: number;
   }> {
-    const clientId = process.env.GOG_CLIENT_ID;
-    const clientSecret = process.env.GOG_CLIENT_SECRET;
-
-    if (!clientId || !clientSecret) {
-      throw new Error('GOG_CLIENT_ID and GOG_CLIENT_SECRET are required to refresh tokens');
-    }
+    const { GOG_PUBLIC_CLIENT_ID, GOG_PUBLIC_CLIENT_SECRET } = await import(
+      '@/lib/oauth-helpers'
+    );
 
     const response = await axios.get(`${GOG_AUTH_BASE}/token`, {
       params: {
-        client_id: clientId,
-        client_secret: clientSecret,
+        client_id: GOG_PUBLIC_CLIENT_ID,
+        client_secret: GOG_PUBLIC_CLIENT_SECRET,
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
       },

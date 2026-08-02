@@ -3,7 +3,7 @@ import { requireUserId } from '@/lib/auth-helpers';
 import { SteamAPI } from '@/lib/steam-api';
 import { GogAPI } from '@/lib/gog-api';
 import { EpicAPI } from '@/lib/epic-api';
-import { LunaAPI } from '@/lib/luna-api';
+import { AmazonAPI } from '@/lib/amazon-api';
 import { prisma } from '@/lib/prisma';
 
 async function ensureGogToken(account: {
@@ -129,7 +129,8 @@ export async function POST() {
       }
 
       if (account.platform === 'epic') {
-        const epic = new EpicAPI(account.accessToken || undefined);
+        if (!account.accessToken) continue;
+        const epic = new EpicAPI(account.accessToken);
         const wishlist = await epic.getWishlist();
         for (const game of wishlist) {
           await prisma.wishlistItem.upsert({
@@ -141,14 +142,14 @@ export async function POST() {
               },
             },
             update: {
-              gameData: JSON.stringify(game),
+              gameData: JSON.stringify({ name: game.title, ...game }),
               syncedAt: new Date(),
             },
             create: {
               userId: auth.userId,
               platform: 'epic',
               externalId: game.id,
-              gameData: JSON.stringify(game),
+              gameData: JSON.stringify({ name: game.title, ...game }),
             },
           });
           total += 1;
@@ -159,15 +160,16 @@ export async function POST() {
         });
       }
 
-      if (account.platform === 'luna') {
-        const luna = new LunaAPI(account.accessToken || undefined);
-        const wishlist = await luna.getWishlist();
+      if (account.platform === 'amazon') {
+        if (!account.accessToken) continue;
+        const amazon = new AmazonAPI(account.accessToken);
+        const wishlist = await amazon.getWishlist();
         for (const game of wishlist) {
           await prisma.wishlistItem.upsert({
             where: {
               userId_platform_externalId: {
                 userId: auth.userId,
-                platform: 'luna',
+                platform: 'amazon',
                 externalId: game.id,
               },
             },
@@ -177,7 +179,7 @@ export async function POST() {
             },
             create: {
               userId: auth.userId,
-              platform: 'luna',
+              platform: 'amazon',
               externalId: game.id,
               gameData: JSON.stringify({ name: game.title, ...game }),
             },

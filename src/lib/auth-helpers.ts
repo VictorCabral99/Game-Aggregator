@@ -30,3 +30,24 @@ export function isStale(date: Date | null | undefined, hours = 24) {
 export async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/** Run async work over items with limited concurrency. */
+export async function mapPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>
+) {
+  const limit = Math.max(1, Math.min(concurrency, items.length || 1));
+  let next = 0;
+
+  await Promise.all(
+    Array.from({ length: limit }, async () => {
+      while (true) {
+        const index = next;
+        next += 1;
+        if (index >= items.length) return;
+        await worker(items[index], index);
+      }
+    })
+  );
+}

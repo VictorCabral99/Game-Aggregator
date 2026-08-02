@@ -31,7 +31,7 @@ export async function GET() {
     lastDailySyncAt: state?.lastDailySyncAt ?? null,
     lastRatingsSyncAt: state?.lastRatingsSyncAt ?? null,
     lastDealsSyncAt: state?.lastDealsSyncAt ?? null,
-    needsSync: isStale(state?.lastDailySyncAt, 24),
+    needsSync: isStale(state?.lastDailySyncAt, 24 * 7),
   });
 }
 
@@ -41,43 +41,63 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}));
   const force = Boolean(body?.force);
+  const markOnly = Boolean(body?.markOnly);
 
   const state = await getUserSyncState(auth.userId);
-  if (!force && !isStale(state?.lastDailySyncAt, 24)) {
+
+  if (markOnly) {
+    const now = new Date();
+    await prisma.user.update({
+      where: { id: auth.userId },
+      data: {
+        lastDailySyncAt: now,
+        lastRatingsSyncAt: now,
+        lastDealsSyncAt: now,
+      },
+    });
+    return NextResponse.json({
+      success: true,
+      marked: true,
+      lastDailySyncAt: now,
+    });
+  }
+
+  if (!force && !isStale(state?.lastDailySyncAt, 24 * 7)) {
     return NextResponse.json({
       success: true,
       skipped: true,
-      reason: 'Already synced within 24h',
+      reason: 'Already synced within 7 days',
       lastDailySyncAt: state?.lastDailySyncAt,
     });
   }
 
   const origin = request.nextUrl.origin;
   const cookie = request.headers.get('cookie');
+  const stage = typeof body?.stage === 'string' ? body.stage : 'all';
 
   const results: Record<string, unknown> = {};
 
-  const library = await callInternal(origin, '/api/library', cookie);
-  results.library = library.data;
+  if (stage === 'all' || stage === 'library') {
+    const library = await callInternal(origin, '/api/library', cookie);
+    results.library = library.data;
 
-  const wishlist = await callInternal(origin, '/api/wishlist', cookie);
-  results.wishlist = wishlist.data;
-
-  const ratings = await callInternal(origin, '/api/ratings/batch', cookie);
-  results.ratings = ratings.data;
-
-  const deals = await callInternal(origin, '/api/deals/batch', cookie);
-  results.deals = deals.data;
+    const wishlist = await callInternal(origin, '/api/wishlist', cookie);
+    results.wishlist = wishlist.data;
+  }
 
   const now = new Date();
-  await prisma.user.update({
-    where: { id: auth.userId },
-    data: { lastDailySyncAt: now },
-  });
+  // Notas e preços ficam nos botões dedicados; sync de lojas só marca daily
+  if (stage === 'all' || stage === 'enrich' || stage === 'library') {
+    await prisma.user.update({
+      where: { id: auth.userId },
+      data: { lastDailySyncAt: now },
+    });
+  }
 
   return NextResponse.json({
     success: true,
     skipped: false,
+    stage,
     lastDailySyncAt: now,
     results,
   });

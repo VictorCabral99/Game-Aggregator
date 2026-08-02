@@ -66,7 +66,7 @@ export default function Home() {
 
         <ul className="mt-12 text-left space-y-3 text-gray-400 max-w-md mx-auto">
           <li>1. Login obrigatório com Google</li>
-          <li>2. Conecte Steam e GOG (Epic e Luna em breve)</li>
+          <li>2. Conecte Steam, Epic, GOG e Amazon Games (login oficial)</li>
           <li>3. Veja notas Metacritic/RAWG dos jogos que você tem</li>
           <li>4. Acompanhe promoções da wishlist via IsThereAnyDeal</li>
           <li>5. Atualização automática 1x por dia ao abrir o app</li>

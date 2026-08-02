@@ -43,9 +43,12 @@ export class RatingAggregator {
 
   static aggregate(
     metacritic: number | null,
-    rawg: number | null
+    rawg: number | null,
+    steam: number | null = null
   ): AggregatedRating[] {
-    const ratings: AggregatedRating[] = [
+    // Keep null rows so callers can stamp lastUpdated after an attempt
+    // (avoids re-fetching the same title every click when a source is missing).
+    return [
       {
         source: 'metacritic',
         rating: metacritic,
@@ -58,9 +61,13 @@ export class RatingAggregator {
         reviewCount: null,
         url: null,
       },
+      {
+        source: 'steam',
+        rating: steam,
+        reviewCount: null,
+        url: null,
+      },
     ];
-
-    return ratings.filter((r) => r.rating !== null);
   }
 
   /** Normalize display score to ~0-100 for UI */

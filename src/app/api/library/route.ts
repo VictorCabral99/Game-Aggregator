@@ -3,7 +3,7 @@ import { requireUserId } from '@/lib/auth-helpers';
 import { SteamAPI } from '@/lib/steam-api';
 import { GogAPI } from '@/lib/gog-api';
 import { EpicAPI } from '@/lib/epic-api';
-import { LunaAPI } from '@/lib/luna-api';
+import { AmazonAPI } from '@/lib/amazon-api';
 import { prisma } from '@/lib/prisma';
 
 async function ensureGogToken(account: {
@@ -33,6 +33,73 @@ async function ensureGogToken(account: {
   }
   if (!token) throw new Error('GOG access token missing');
   return token;
+}
+
+async function ensureEpicToken(account: {
+  id: string;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: Date | null;
+}) {
+  let token = account.accessToken;
+  if (
+    (!token ||
+      (account.tokenExpiresAt && account.tokenExpiresAt.getTime() < Date.now())) &&
+    account.refreshToken
+  ) {
+    const refreshed = await EpicAPI.refresh(account.refreshToken);
+    token = refreshed.access_token;
+    await prisma.platformAccount.update({
+      where: { id: account.id },
+      data: {
+        accessToken: refreshed.access_token,
+        refreshToken: refreshed.refresh_token || account.refreshToken,
+        tokenExpiresAt: refreshed.expires_in
+          ? new Date(Date.now() + refreshed.expires_in * 1000)
+          : null,
+      },
+    });
+  }
+  if (!token) throw new Error('Epic access token missing');
+  return token;
+}
+
+async function ensureAmazonToken(account: {
+  id: string;
+  accessToken: string | null;
+  refreshToken: string | null;
+  tokenExpiresAt: Date | null;
+  metadata: string | null;
+}) {
+  let token = account.accessToken;
+  const meta = account.metadata
+    ? (JSON.parse(account.metadata) as { serial?: string; nile?: boolean })
+    : {};
+  const serial = meta.serial || '';
+
+  if (
+    (!token ||
+      (account.tokenExpiresAt &&
+        account.tokenExpiresAt.getTime() < Date.now() + 60_000)) &&
+    account.refreshToken
+  ) {
+    const refreshed = await AmazonAPI.refresh(account.refreshToken);
+    token = refreshed.access_token;
+    await prisma.platformAccount.update({
+      where: { id: account.id },
+      data: {
+        accessToken: refreshed.access_token,
+        refreshToken: refreshed.refresh_token || account.refreshToken,
+        tokenExpiresAt: refreshed.expires_in
+          ? new Date(Date.now() + Number(refreshed.expires_in) * 1000)
+          : null,
+      },
+    });
+  }
+
+  if (!token) throw new Error('Amazon access token missing');
+  if (!serial) throw new Error('Amazon device serial missing — reconecte a loja');
+  return { token, serial };
 }
 
 export async function GET() {
@@ -67,6 +134,20 @@ export async function POST() {
           continue;
         }
         const steam = new SteamAPI(process.env.STEAM_API_KEY);
+
+        // Keep persona name fresh for the store card
+        let displayName = account.displayName;
+        try {
+          const summaries = await steam.getPlayerSummaries([
+            account.externalUserId,
+          ]);
+          const persona =
+            summaries?.response?.players?.[0]?.personaname || null;
+          if (persona) displayName = persona;
+        } catch {
+          // keep existing displayName
+        }
+
         const owned = await steam.getOwnedGames(account.externalUserId);
         for (const game of owned.response.games || []) {
           await prisma.gameLibrary.upsert({
@@ -92,7 +173,10 @@ export async function POST() {
         }
         await prisma.platformAccount.update({
           where: { id: account.id },
-          data: { lastLibrarySyncAt: new Date() },
+          data: {
+            lastLibrarySyncAt: new Date(),
+            ...(displayName ? { displayName } : {}),
+          },
         });
       }
 
@@ -129,7 +213,8 @@ export async function POST() {
       }
 
       if (account.platform === 'epic') {
-        const epic = new EpicAPI(account.accessToken || undefined);
+        const token = await ensureEpicToken(account);
+        const epic = new EpicAPI(token);
         const owned = await epic.getOwnedGames();
         for (const game of owned) {
           await prisma.gameLibrary.upsert({
@@ -141,14 +226,14 @@ export async function POST() {
               },
             },
             update: {
-              gameData: JSON.stringify(game),
+              gameData: JSON.stringify({ name: game.title, ...game }),
               syncedAt: new Date(),
             },
             create: {
               userId: auth.userId,
               platform: 'epic',
               externalId: game.id,
-              gameData: JSON.stringify(game),
+              gameData: JSON.stringify({ name: game.title, ...game }),
             },
           });
           total += 1;
@@ -159,33 +244,28 @@ export async function POST() {
         });
       }
 
-      if (account.platform === 'luna') {
-        const luna = new LunaAPI(account.accessToken || undefined);
-        const owned = await luna.getOwnedGames();
+      if (account.platform === 'amazon') {
+        const { token, serial } = await ensureAmazonToken(account);
+        const amazon = new AmazonAPI(token, serial);
+        const owned = await amazon.getOwnedGames();
         for (const game of owned) {
           await prisma.gameLibrary.upsert({
             where: {
               userId_platform_externalId: {
                 userId: auth.userId,
-                platform: 'luna',
+                platform: 'amazon',
                 externalId: game.id,
               },
             },
             update: {
-              gameData: JSON.stringify({
-                name: game.title,
-                ...game,
-              }),
+              gameData: JSON.stringify({ name: game.title, ...game }),
               syncedAt: new Date(),
             },
             create: {
               userId: auth.userId,
-              platform: 'luna',
+              platform: 'amazon',
               externalId: game.id,
-              gameData: JSON.stringify({
-                name: game.title,
-                ...game,
-              }),
+              gameData: JSON.stringify({ name: game.title, ...game }),
             },
           });
           total += 1;
@@ -197,7 +277,9 @@ export async function POST() {
       }
     } catch (error) {
       console.error(`Library sync error (${account.platform}):`, error);
-      errors.push(`${account.platform}: sync failed`);
+      const detail =
+        error instanceof Error ? error.message : 'sync failed';
+      errors.push(`${account.platform}: ${detail}`);
     }
   }
 
