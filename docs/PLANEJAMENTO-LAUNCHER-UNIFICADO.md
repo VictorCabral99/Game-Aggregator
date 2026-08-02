@@ -887,10 +887,10 @@ Cobrir cenários de uso além do PC “local”: perfis, streaming, presets.
 - Sync de conflitos (mesmo jogo em dois devices)
 
 #### Definition of Done
-- [ ] Troca de perfil altera UI e setting de boot
-- [ ] Atalho Moonlight inicia stream para host configurado
-- [ ] Pelo menos 1 preset de launch documentado (ex.: `-fullscreen`)
-- [ ] Offline: biblioteca e launch local intactos sem rede
+- [x] Troca de perfil altera UI e setting de boot
+- [x] Atalho Moonlight inicia stream para host configurado
+- [x] Pelo menos 1 preset de launch documentado (ex.: `-fullscreen`)
+- [x] Offline: biblioteca e launch local intactos sem rede
 
 ---
 

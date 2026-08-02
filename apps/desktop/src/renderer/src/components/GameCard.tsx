@@ -37,6 +37,7 @@ export default function GameCard({ game, selected, score, hideScore, onSelect, o
         {uniqueBadges.length > 0 && (
           <span className="card__badge">{uniqueBadges.join(' · ')}</span>
         )}
+        {game.isRemote && <span className="card__badge card__badge--remote">Remote</span>}
         {!hideScore && score !== undefined && score !== null && score > 0 && (
           <span className={`card__score ${score >= 80 ? 'card__score--high' : ''}`}>
             {Math.round(score)}

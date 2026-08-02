@@ -16,6 +16,8 @@ export default function GameFormModal({ game, onClose, onSave }: Props): JSX.Ele
   const [coverUrl, setCoverUrl] = useState(game?.coverUrl ?? '');
   const [genres, setGenres] = useState(game?.genres.join(', ') ?? '');
   const [summary, setSummary] = useState(game?.summary ?? '');
+  const [launchArgs, setLaunchArgs] = useState(game?.launchArgs ?? '');
+  const [isRemote, setIsRemote] = useState(game?.isRemote ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,6 +76,8 @@ export default function GameFormModal({ game, onClose, onSave }: Props): JSX.Ele
         .map((g) => g.trim())
         .filter(Boolean),
       summary: summary.trim() || undefined,
+      launchArgs: launchArgs.trim() || undefined,
+      isRemote,
     };
     setSaving(true);
     try {
@@ -124,6 +128,34 @@ export default function GameFormModal({ game, onClose, onSave }: Props): JSX.Ele
             onChange={(e) => setSummary(e.target.value)}
             placeholder="Breve descrição do jogo"
           />
+        </label>
+
+        <label className="field">
+          <span>Args de launch (opt-in, jogos locais)</span>
+          <div className="field__row">
+            <input
+              value={launchArgs}
+              onChange={(e) => setLaunchArgs(e.target.value)}
+              placeholder="ex.: -fullscreen"
+            />
+            <button
+              type="button"
+              title="Preset documentado: força fullscreen no exe local"
+              onClick={() => setLaunchArgs('-fullscreen')}
+            >
+              -fullscreen
+            </button>
+          </div>
+          <small className="hint">Só aplica a fontes locais. Lojas oficiais ignoram este campo.</small>
+        </label>
+
+        <label className="field field--check">
+          <input
+            type="checkbox"
+            checked={isRemote}
+            onChange={(e) => setIsRemote(e.target.checked)}
+          />
+          <span>Marcar como Remote (stream / outro PC)</span>
         </label>
 
         <div className="field">

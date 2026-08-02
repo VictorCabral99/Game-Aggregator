@@ -110,6 +110,20 @@ export default function GameDetailModal({
               <dd>{new Date(game.preferredSource.lastPlayedAt).toLocaleString('pt-BR')}</dd>
             </div>
           )}
+          {game.launchArgs && (
+            <div>
+              <dt>Launch args</dt>
+              <dd>
+                <code>{game.launchArgs}</code>
+              </dd>
+            </div>
+          )}
+          {game.isRemote && (
+            <div>
+              <dt>Remote</dt>
+              <dd>Marcado como stream / outro PC</dd>
+            </div>
+          )}
         </dl>
 
         {!hideScore && (

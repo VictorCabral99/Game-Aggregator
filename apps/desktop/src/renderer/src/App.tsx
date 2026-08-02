@@ -6,6 +6,8 @@ import type {
   GameSource,
   LaunchResult,
   RatingsSummary,
+  ProfileId,
+  ProfileTokens,
   SteamStatus,
   StoreId,
   StoreStatus,
@@ -44,10 +46,6 @@ interface ToastState {
   kind: 'ok' | 'error';
 }
 
-const CARD_W = 200;
-const GAP = 16;
-const PADDING = 48;
-
 const STORE_LABELS: Array<{ id: StoreId; label: string }> = [
   { id: 'epic', label: 'Epic' },
   { id: 'gog', label: 'GOG' },
@@ -78,6 +76,16 @@ export default function App(): JSX.Element {
   const [syncingAll, setSyncingAll] = useState(false);
   const [downloadingCovers, setDownloadingCovers] = useState(false);
   const [tvMode, setTvMode] = useState(false);
+  const [profile, setProfile] = useState<ProfileId>('desk');
+  const [profileTokens, setProfileTokens] = useState<ProfileTokens>({
+    cardWidth: 180,
+    cardGap: 12,
+    padding: 24,
+    fontScale: 1.0,
+    maxColumns: 8,
+    safeMarginPct: 0,
+    hideCursorAfterMs: 0,
+  });
   const [ratings, setRatings] = useState<Record<string, RatingsSummary | null>>({});
   const [syncingRatings, setSyncingRatings] = useState(false);
   const [sortBy, setSortBy] = useState<'name' | 'rating' | 'recent'>('name');
@@ -143,8 +151,12 @@ export default function App(): JSX.Element {
     };
   }, [refresh, notify, refreshRatings, checkAuth]);
 
-  // Settings de UX (Fase 5): modo TV, sons, fullscreen no boot.
-  useEffect(() => {
+  const CARD_W = profileTokens.cardWidth;
+  const GAP = profileTokens.cardGap;
+  const PADDING = profileTokens.padding;
+
+  // Settings de UX (Fase 5) + Profiles (P8-01)
+  const reloadUxSettings = useCallback(() => {
     void window.api
       .settingsGet('ui.tvMode')
       .then((v) => setTvMode(v === '1'))
@@ -157,11 +169,35 @@ export default function App(): JSX.Element {
       .settingsGet('ui.hideRatings')
       .then((v) => setHideNotes(v === '1'))
       .catch(() => undefined);
+    void window.api.profileGet().then(setProfile).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    document.body.classList.toggle('tv-mode', tvMode);
-  }, [tvMode]);
+    reloadUxSettings();
+  }, [reloadUxSettings]);
+
+  // Load profile tokens when profile changes
+  useEffect(() => {
+    void window.api.profileGetTokens(profile).then(setProfileTokens).catch(() => undefined);
+  }, [profile]);
+
+  // Apply profile tokens to CSS custom properties
+  useEffect(() => {
+    const root = document.documentElement;
+    root.style.setProperty('--card-w', `${profileTokens.cardWidth}px`);
+    root.style.setProperty('--card-gap', `${profileTokens.cardGap}px`);
+    root.style.setProperty('--grid-padding', `${profileTokens.padding}px`);
+    root.style.setProperty('--font-scale', String(profileTokens.fontScale));
+    root.style.setProperty('--max-cols', String(profileTokens.maxColumns));
+    root.style.setProperty('--safe-margin-pct', `${profileTokens.safeMarginPct}%`);
+    root.style.setProperty('--cursor-hide-ms', `${profileTokens.hideCursorAfterMs}ms`);
+  }, [profileTokens]);
+
+  useEffect(() => {
+    document.body.classList.toggle('tv-mode', tvMode || profile === 'tv');
+    document.body.classList.remove('profile-desk', 'profile-tv', 'profile-handheld');
+    document.body.classList.add(`profile-${profile}`);
+  }, [tvMode, profile]);
 
   useGamepadNav({
     enabled: true,
@@ -709,7 +745,10 @@ export default function App(): JSX.Element {
       {view.kind === 'settings' && (
         <SettingsModal
           onClose={() => setView({ kind: 'library' })}
-          onChanged={() => undefined}
+          onChanged={() => {
+            reloadUxSettings();
+            void refresh();
+          }}
           onOpenAccounts={() => setView({ kind: 'accounts' })}
         />
       )}

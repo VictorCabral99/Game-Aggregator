@@ -1,7 +1,8 @@
 import { app, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { DbHealth } from '../../shared/api';
+import type { DbHealth, ProfileId } from '../../shared/api';
+import { getProfileTokens, isProfileId, profileBootSettings } from '../../shared/profiles';
 import { applyMigrations } from './migrations';
 import { LibraryRepository } from './games';
 import { RatingsRepository } from './ratings';
@@ -86,6 +87,26 @@ export function registerDbHandlers(): void {
   ipcMain.handle('settings:set', (_event, args: { key: string; value: string }): void => {
     if (!args?.key) throw new Error('key é obrigatório');
     setSetting(args.key, String(args.value ?? ''));
+  });
+
+  // Profiles (P8-01/02)
+  ipcMain.handle('profile:get', (): ProfileId => {
+    const raw = getSetting('ui.profile') ?? 'desk';
+    return isProfileId(raw) ? raw : 'desk';
+  });
+
+  ipcMain.handle('profile:set', (_event, profile: ProfileId) => {
+    if (!isProfileId(profile)) throw new Error('Perfil inválido');
+    setSetting('ui.profile', profile);
+    const boot = profileBootSettings(profile);
+    for (const [key, value] of Object.entries(boot)) {
+      setSetting(key, value);
+    }
+  });
+
+  ipcMain.handle('profile:get-tokens', (_event, profile: ProfileId) => {
+    const id = isProfileId(profile) ? profile : 'desk';
+    return getProfileTokens(id);
   });
 
   ipcMain.handle('db:health', (): DbHealth => {

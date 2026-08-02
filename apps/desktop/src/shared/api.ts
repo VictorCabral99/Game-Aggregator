@@ -26,6 +26,18 @@ export interface DbHealth {
 
 export type GamePlatform = 'local' | 'steam' | 'epic' | 'gog' | 'amazon' | 'emulator' | 'manual';
 
+export type ProfileId = 'desk' | 'tv' | 'handheld';
+
+export interface ProfileTokens {
+  cardWidth: number;
+  cardGap: number;
+  padding: number;
+  fontScale: number;
+  maxColumns: number;
+  safeMarginPct: number;
+  hideCursorAfterMs: number;
+}
+
 export interface GameSource {
   id: string;
   platform: GamePlatform;
@@ -51,6 +63,10 @@ export interface Game {
   notes: string | null;
   summary: string | null;
   genres: string[];
+  /** Args extras no launch local (opt-in, ex.: -fullscreen). P8-05. */
+  launchArgs: string | null;
+  /** Badge Remote — jogo marcado como stream/remoto. P8-04. */
+  isRemote: boolean;
   createdAt: string;
   updatedAt: string;
   preferredSource: GameSource | null;
@@ -68,9 +84,57 @@ export interface CreateGameInput {
   genres?: string[];
   platform?: GamePlatform;
   externalId?: string;
+  launchArgs?: string;
+  isRemote?: boolean;
 }
 
 export type UpdateGameInput = Partial<CreateGameInput>;
+
+export interface MoonlightSettings {
+  path: string;
+  host: string;
+  app: string;
+  extraArgs: string;
+}
+
+export interface MoonlightStatus {
+  available: boolean;
+  path: string | null;
+  host: string | null;
+  app: string | null;
+  error: string | null;
+}
+
+export interface LibraryExportPayload {
+  version: 1;
+  exportedAt: string;
+  profile: ProfileId | null;
+  games: Array<{
+    title: string;
+    coverUrl: string | null;
+    notes: string | null;
+    summary: string | null;
+    genres: string[];
+    launchArgs: string | null;
+    isRemote: boolean;
+    sources: Array<{
+      platform: GamePlatform;
+      externalId: string | null;
+      title: string;
+      installPath: string | null;
+      executable: string | null;
+      cwd: string | null;
+      isInstalled: boolean;
+      consoleId: string | null;
+    }>;
+  }>;
+}
+
+export interface LibraryImportResult {
+  imported: number;
+  skipped: number;
+  error?: string;
+}
 
 export interface CoversResult {
   downloaded: number;
@@ -372,6 +436,19 @@ export interface DesktopApi {
   wishlistSyncPrices(): Promise<WishlistSyncResult>;
   wishlistImportSteam(): Promise<SteamWishlistImportResult>;
   wishlistSettings(): Promise<{ itadKey: string; country: string; steamId: string }>;
+  // Profiles (P8-01)
+  profileGet(): Promise<ProfileId>;
+  profileSet(profile: ProfileId): Promise<void>;
+  profileGetTokens(profile: ProfileId): Promise<ProfileTokens>;
+  // Moonlight (P8-03)
+  moonlightStatus(): Promise<MoonlightStatus>;
+  moonlightSettings(): Promise<MoonlightSettings>;
+  moonlightSetSettings(patch: Partial<MoonlightSettings>): Promise<MoonlightSettings>;
+  moonlightPickExe(): Promise<string | null>;
+  moonlightLaunch(): Promise<LaunchResult>;
+  // Backup local (P8-06)
+  libraryExport(): Promise<{ ok: boolean; path?: string; error?: string }>;
+  libraryImport(): Promise<LibraryImportResult>;
   // Auth
   authGetCurrentUser(): Promise<User | null>;
   authGetGoogleAuthUrl(): Promise<GoogleAuthStartResult>;

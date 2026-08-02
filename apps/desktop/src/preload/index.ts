@@ -12,6 +12,9 @@ import type {
   GoogleAuthStartResult,
   GoogleAuthCallbackResult,
   PlatformOAuthStartResult,
+  ProfileId,
+  ProfileTokens,
+  MoonlightSettings,
 } from '../shared/api';
 
 const api: DesktopApi = {
@@ -30,6 +33,8 @@ const api: DesktopApi = {
     ipcRenderer.invoke('library:merge-sources', args),
   librarySeparateSource: (sourceId: string) => ipcRenderer.invoke('library:separate-source', sourceId),
   libraryPossibleDuplicates: () => ipcRenderer.invoke('library:possible-duplicates'),
+  libraryExport: () => ipcRenderer.invoke('library:export'),
+  libraryImport: () => ipcRenderer.invoke('library:import'),
   pickExe: () => ipcRenderer.invoke('pick-exe'),
   pickCover: () => ipcRenderer.invoke('pick-cover'),
   coverFromUrl: (url: string) => ipcRenderer.invoke('cover-from-url', url),
@@ -73,6 +78,17 @@ const api: DesktopApi = {
   wishlistSyncPrices: () => ipcRenderer.invoke('wishlist:sync-prices'),
   wishlistImportSteam: () => ipcRenderer.invoke('wishlist:import-steam'),
   wishlistSettings: () => ipcRenderer.invoke('wishlist:settings'),
+  // Profiles (P8-01)
+  profileGet: () => ipcRenderer.invoke('profile:get'),
+  profileSet: (profile: ProfileId) => ipcRenderer.invoke('profile:set', profile),
+  profileGetTokens: (profile: ProfileId) => ipcRenderer.invoke('profile:get-tokens', profile),
+  // Moonlight (P8-03)
+  moonlightStatus: () => ipcRenderer.invoke('moonlight:status'),
+  moonlightSettings: () => ipcRenderer.invoke('moonlight:settings'),
+  moonlightSetSettings: (patch: Partial<MoonlightSettings>) =>
+    ipcRenderer.invoke('moonlight:set-settings', patch),
+  moonlightPickExe: () => ipcRenderer.invoke('moonlight:pick-exe'),
+  moonlightLaunch: () => ipcRenderer.invoke('moonlight:launch'),
   // Auth
   authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
   authGetGoogleAuthUrl: () => ipcRenderer.invoke('auth:get-google-auth-url'),

@@ -9,6 +9,14 @@
   --danger: #ef4444;
   --ok: #22c55e;
   font-size: 16px;
+  /* Profile tokens (P8-01) - defaults for 'desk' */
+  --card-w: 200px;
+  --card-gap: 16px;
+  --grid-padding: 48px;
+  --font-scale: 1.0;
+  --max-cols: 6;
+  --safe-margin-pct: 0%;
+  --cursor-hide-ms: 0;
 }
 
 * {
@@ -162,11 +170,23 @@ body {
   color: #cbd5e1;
 }
 
+.card__badge--remote {
+  top: auto;
+  bottom: 8px;
+  left: 8px;
+  right: auto;
+  background: #0369a1;
+  border-color: #0ea5e9;
+  color: #e0f2fe;
+}
+
 /* Grid */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(var(--card-w), 1fr));
+  gap: var(--card-gap);
+  padding: var(--grid-padding);
+  max-width: 100%;
 }
 
 .card {
@@ -422,6 +442,16 @@ body {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 14px;
+}
+
+.field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.field--check input {
+  width: auto;
 }
 
 .field > span {
@@ -808,14 +838,20 @@ body.cursor-hidden * {
 }
 
 body.tv-mode {
-  --card-w: 180px;
+  --card-w: 260px;
+  --card-gap: 20px;
+  --grid-padding: 48px;
+  --font-scale: 1.3;
+  --max-cols: 5;
+  --safe-margin-pct: 5%;
+  --cursor-hide-ms: 3000;
 }
 
 body.tv-mode .shell {
   max-width: 1920px;
   margin: 0 auto;
-  padding-left: max(3%, 24px);
-  padding-right: max(3%, 24px);
+  padding-left: max(var(--safe-margin-pct), 24px);
+  padding-right: max(var(--safe-margin-pct), 24px);
 }
 
 body.tv-mode .card__title {
@@ -872,6 +908,25 @@ body.tv-mode .header h1 {
 .settings__list {
   display: grid;
   gap: 10px;
+}
+
+.settings__section {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.settings__section h3 {
+  margin: 8px 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.settings__row--profile.settings__row--active {
+  border-color: var(--accent);
+  background: rgba(56, 189, 248, 0.08);
 }
 
 .settings__row {

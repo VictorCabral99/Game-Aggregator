@@ -689,22 +689,22 @@ Fases 5–7 estáveis. Moonlight opcional (senão mock “app not found”).
 
 ### Breakdown
 
-| ID | Tarefa |
-|----|--------|
-| P8-01 | Profiles: `desk` / `tv` / `handheld` em settings |
-| P8-02 | Tokens de layout por profile |
-| P8-03 | Moonlight: path + host + launch args |
-| P8-04 | Badge “Remote” opcional em games |
-| P8-05 | Per-game launch args preset (opt-in) |
-| P8-06 | Cloud sync opcional (API web) — pode ser MVP: export/import JSON se OAuth pesado |
-| P8-07 | Garantir offline-first |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P8-01 | Profiles: `desk` / `tv` / `handheld` em settings | ✅ `ui.profile` + IPC `profile:*` + SettingsModal |
+| P8-02 | Tokens de layout por profile | ✅ `shared/profiles.ts` → CSS vars (`--card-w`, …) |
+| P8-03 | Moonlight: path + host + launch args | ✅ `ipc/moonlight.ts` + seção Settings |
+| P8-04 | Badge “Remote” opcional em games | ✅ `is_remote` (migration v9) + badge no card |
+| P8-05 | Per-game launch args preset (opt-in) | ✅ `launch_args` + preset `-fullscreen` no form |
+| P8-06 | Cloud sync opcional (API web) — MVP: export/import JSON | ✅ `library:export` / `library:import` |
+| P8-07 | Garantir offline-first | ✅ export/import + launch local sem rede (`phase8-smoke.ts`) |
 
 ### Gate 100% funcional — Fase 8
 
-- [ ] Troca de perfil visível
-- [ ] Moonlight ou empty state claro
-- [ ] 1 preset documentado funcionando
-- [ ] Offline launch OK
+- [x] Troca de perfil visível (tokens + tvMode/fullscreen derivados)
+- [x] Moonlight ou empty state claro (status + mensagem se path/host ausente)
+- [x] 1 preset documentado funcionando (`-fullscreen`)
+- [x] Offline launch OK (biblioteca SQLite + export/import)
 - [ ] Tag `phase-8-done`
 
 ---

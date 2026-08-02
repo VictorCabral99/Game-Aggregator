@@ -1,8 +1,9 @@
-import { ipcMain } from 'electron';
-import { existsSync } from 'node:fs';
-import { getLibraryRepository } from '../db';
+import { dialog, ipcMain } from 'electron';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { getLibraryRepository, getSetting } from '../db';
 import { launchPlatformGame } from '../providers';
 import type { CreateGameInput, UpdateGameInput } from '../db/games';
+import type { LibraryImportResult, LibraryExportPayload } from '../../shared/api';
 
 export function registerLibraryHandlers(): void {
   const repo = () => getLibraryRepository();
@@ -62,6 +63,47 @@ export function registerLibraryHandlers(): void {
   });
 
   ipcMain.handle('library:possible-duplicates', () => repo().possibleDuplicates());
+
+  // P8-06 — export/import JSON (offline backup)
+  ipcMain.handle('library:export', async () => {
+    const profile = getSetting('ui.profile');
+    const payload = repo().exportPayload(profile);
+    const result = await dialog.showSaveDialog({
+      title: 'Exportar biblioteca',
+      defaultPath: `gagg-library-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, error: 'cancelado' };
+    writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
+    return { ok: true, path: result.filePath };
+  });
+
+  ipcMain.handle('library:import', async (): Promise<LibraryImportResult> => {
+    const result = await dialog.showOpenDialog({
+      title: 'Importar biblioteca',
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { imported: 0, skipped: 0, error: 'cancelado' };
+    }
+    try {
+      const raw = readFileSync(result.filePaths[0], 'utf8');
+      const payload = JSON.parse(raw) as LibraryExportPayload;
+      return repo().importPayload(payload);
+    } catch (err) {
+      return {
+        imported: 0,
+        skipped: 0,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+}
+
+function parseLaunchArgs(raw: string | null | undefined): string[] {
+  if (!raw?.trim()) return [];
+  return raw.trim().split(/\s+/).filter(Boolean);
 }
 
 function launchSource(sourceId: string) {
@@ -90,10 +132,16 @@ function launchSource(sourceId: string) {
   if (!source.executable) {
     return Promise.resolve({ ok: false, error: 'Este jogo não tem executável local' });
   }
+  if (!existsSync(source.executable)) {
+    return Promise.resolve({ ok: false, error: 'arquivo não encontrado' });
+  }
+
+  const game = repo.get(source.gameId);
+  const args = parseLaunchArgs(game?.launchArgs);
 
   return import('node:child_process').then(({ spawn }) => {
     return new Promise((resolve) => {
-      const child = spawn(source.executable as string, [], {
+      const child = spawn(source.executable as string, args, {
         cwd: source.cwd || undefined,
         detached: true,
         stdio: 'ignore',

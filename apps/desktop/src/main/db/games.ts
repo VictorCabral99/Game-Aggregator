@@ -34,6 +34,8 @@ export interface Game {
   notes: string | null;
   summary: string | null;
   genres: string[];
+  launchArgs: string | null;
+  isRemote: boolean;
   createdAt: string;
   updatedAt: string;
   /** Última fonte jogada; senão primeira instalada. Define launch padrão. */
@@ -52,6 +54,8 @@ export interface CreateGameInput {
   genres?: string[];
   platform?: GamePlatform;
   externalId?: string;
+  launchArgs?: string;
+  isRemote?: boolean;
 }
 
 export type UpdateGameInput = Partial<CreateGameInput>;
@@ -94,6 +98,8 @@ interface CanonicalRow {
   notes: string | null;
   summary: string | null;
   genres_json: string | null;
+  launch_args: string | null;
+  is_remote: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -161,6 +167,8 @@ export class LibraryRepository {
       notes: row.notes,
       summary: row.summary,
       genres,
+      launchArgs: row.launch_args ?? null,
+      isRemote: row.is_remote === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       preferredSource: pickPreferred(sources),
@@ -230,8 +238,8 @@ export class LibraryRepository {
 
     this.db
       .prepare(
-        `INSERT INTO canonical_games (id, slug, title, normalized_title, cover_path, cover_url, notes, summary, genres_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO canonical_games (id, slug, title, normalized_title, cover_path, cover_url, notes, summary, genres_json, launch_args, is_remote, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -243,6 +251,8 @@ export class LibraryRepository {
         input.notes?.trim() || null,
         input.summary?.trim() || null,
         input.genres && input.genres.length > 0 ? JSON.stringify(input.genres) : null,
+        input.launchArgs?.trim() || null,
+        input.isRemote ? 1 : 0,
         now,
         now
       );
@@ -435,7 +445,7 @@ export class LibraryRepository {
       .prepare(
         `UPDATE canonical_games SET title = ?, normalized_title = ?, cover_path = COALESCE(?, cover_path),
          cover_url = COALESCE(?, cover_url), notes = ?, summary = COALESCE(?, summary),
-         genres_json = ?, updated_at = ? WHERE id = ?`
+         genres_json = ?, launch_args = ?, is_remote = ?, updated_at = ? WHERE id = ?`
       )
       .run(
         title,
@@ -449,6 +459,8 @@ export class LibraryRepository {
           : current.genres.length > 0
             ? JSON.stringify(current.genres)
             : null,
+        patch.launchArgs !== undefined ? patch.launchArgs.trim() || null : current.launchArgs,
+        patch.isRemote !== undefined ? (patch.isRemote ? 1 : 0) : current.isRemote ? 1 : 0,
         now,
         id
       );
@@ -578,6 +590,159 @@ export class LibraryRepository {
       }
     }
     return out;
+  }
+
+  /** Serializa a biblioteca para backup JSON offline (P8-06). */
+  exportPayload(profile: string | null): {
+    version: 1;
+    exportedAt: string;
+    profile: string | null;
+    games: Array<{
+      title: string;
+      coverUrl: string | null;
+      notes: string | null;
+      summary: string | null;
+      genres: string[];
+      launchArgs: string | null;
+      isRemote: boolean;
+      sources: Array<{
+        platform: GamePlatform;
+        externalId: string | null;
+        title: string;
+        installPath: string | null;
+        executable: string | null;
+        cwd: string | null;
+        isInstalled: boolean;
+        consoleId: string | null;
+      }>;
+    }>;
+  } {
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      profile,
+      games: this.list().map((g) => ({
+        title: g.title,
+        coverUrl: g.coverUrl,
+        notes: g.notes,
+        summary: g.summary,
+        genres: g.genres,
+        launchArgs: g.launchArgs,
+        isRemote: g.isRemote,
+        sources: g.sources.map((s) => ({
+          platform: s.platform,
+          externalId: s.externalId,
+          title: s.title,
+          installPath: s.installPath,
+          executable: s.executable,
+          cwd: s.cwd,
+          isInstalled: s.isInstalled,
+          consoleId: s.consoleId,
+        })),
+      })),
+    };
+  }
+
+  /** Importa backup JSON — não sobrescreve sources existentes (platform+externalId). */
+  importPayload(payload: {
+    games?: Array<{
+      title: string;
+      coverUrl?: string | null;
+      notes?: string | null;
+      summary?: string | null;
+      genres?: string[];
+      launchArgs?: string | null;
+      isRemote?: boolean;
+      sources?: Array<{
+        platform: GamePlatform;
+        externalId?: string | null;
+        title?: string;
+        installPath?: string | null;
+        executable?: string | null;
+        cwd?: string | null;
+        isInstalled?: boolean;
+        consoleId?: string | null;
+      }>;
+    }>;
+  }): { imported: number; skipped: number } {
+    if (!payload?.games || !Array.isArray(payload.games)) {
+      throw new Error('JSON inválido: falta games[]');
+    }
+    let imported = 0;
+    let skipped = 0;
+    const now = new Date().toISOString();
+
+    for (const item of payload.games) {
+      const title = item.title?.trim();
+      if (!title) {
+        skipped++;
+        continue;
+      }
+      const sources = item.sources ?? [];
+      if (sources.length === 0) {
+        skipped++;
+        continue;
+      }
+
+      // Se qualquer source já existe, pula o jogo inteiro.
+      const already = sources.some((s) => {
+        if (!s.externalId) return false;
+        const row = this.db
+          .prepare(`SELECT id FROM game_sources WHERE platform = ? AND external_id = ?`)
+          .get(s.platform, s.externalId) as { id?: string } | undefined;
+        return Boolean(row?.id);
+      });
+      if (already) {
+        skipped++;
+        continue;
+      }
+
+      const gameId = randomUUID();
+      this.db
+        .prepare(
+          `INSERT INTO canonical_games (id, slug, title, normalized_title, cover_path, cover_url, notes, summary, genres_json, launch_args, is_remote, created_at, updated_at)
+           VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          gameId,
+          `c-${randomUUID().replace(/-/g, '')}`,
+          title,
+          normalizeTitle(title),
+          item.coverUrl?.trim() || null,
+          item.notes?.trim() || null,
+          item.summary?.trim() || null,
+          item.genres && item.genres.length > 0 ? JSON.stringify(item.genres) : null,
+          item.launchArgs?.trim() || null,
+          item.isRemote ? 1 : 0,
+          now,
+          now
+        );
+
+      for (const s of sources) {
+        this.db
+          .prepare(
+            `INSERT INTO game_sources (id, game_id, platform, external_id, title, install_path, executable, cwd, is_installed, size_bytes, raw_json, last_played_at, scanned_at, created_at, updated_at, console_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?)`
+          )
+          .run(
+            `s-${randomUUID().replace(/-/g, '')}`,
+            gameId,
+            s.platform,
+            s.externalId?.trim() || null,
+            (s.title ?? title).trim(),
+            s.installPath?.trim() || null,
+            s.executable?.trim() || null,
+            s.cwd?.trim() || null,
+            s.isInstalled === false ? 0 : 1,
+            now,
+            now,
+            now,
+            s.consoleId ?? null
+          );
+      }
+      imported++;
+    }
+    return { imported, skipped };
   }
 }
 

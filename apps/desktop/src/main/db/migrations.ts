@@ -261,6 +261,13 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
         ON platform_accounts (user_id, platform);
     `,
   },
+  {
+    version: 9,
+    sql: `
+      ALTER TABLE canonical_games ADD COLUMN launch_args TEXT;
+      ALTER TABLE canonical_games ADD COLUMN is_remote INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];
 
 export function applyMigrations(db: DatabaseSync): void {
