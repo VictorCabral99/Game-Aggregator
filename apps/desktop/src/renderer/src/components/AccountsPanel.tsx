@@ -49,11 +49,7 @@ export default function AccountsPanel({ onClose }: Props): JSX.Element {
     setConnecting(platform);
     setMessage(null);
     try {
-      const { authUrl, state } = await window.api.authGetPlatformAuthUrl(platform);
-      // Abre janela de auth
-      await window.api.authPlatformCallback({ platform, code: '', state });
-      // O callback real acontece quando o main intercepta o redirect
-      // Por enquanto, recarrega
+      await window.api.authConnectPlatform(platform);
       await load();
       setMessage(`${platform.toUpperCase()} conectado!`);
     } catch (err) {

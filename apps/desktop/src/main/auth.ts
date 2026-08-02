@@ -1,14 +1,37 @@
-import { BrowserWindow, app, ipcMain, net } from 'electron';
+import { BrowserWindow, ipcMain, net } from 'electron';
 import { URLSearchParams } from 'node:url';
 import { getAuthRepository } from './db';
-import type { Account, GoogleAuthCallbackResult, GoogleAuthStartResult, PlatformAccount, User } from '../shared/api';
+import type {
+  GoogleAuthCallbackResult,
+  GoogleAuthStartResult,
+  User,
+} from '../shared/api';
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID ?? '';
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? '';
-const GOOGLE_REDIRECT_URI = 'http://localhost:3000/auth/callback/google';
+/** Redirect usado pelo desktop — cadastre EXATAMENTE este URI no Google Cloud. */
+export const GOOGLE_REDIRECT_URI = 'http://localhost:3000/auth/callback/google';
+
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
+
+let currentUser: User | null = null;
+let pendingState: string | null = null;
+
+export function getCurrentUser(): User | null {
+  return currentUser;
+}
+
+export function getCurrentUserId(): string | null {
+  return currentUser?.id ?? null;
+}
+
+function clientId(): string {
+  return process.env.GOOGLE_CLIENT_ID?.trim() ?? '';
+}
+
+function clientSecret(): string {
+  return process.env.GOOGLE_CLIENT_SECRET?.trim() ?? '';
+}
 
 function generateState(): string {
   return crypto.randomUUID();
@@ -16,7 +39,7 @@ function generateState(): string {
 
 function buildGoogleAuthUrl(state: string): string {
   const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
+    client_id: clientId(),
     redirect_uri: GOOGLE_REDIRECT_URI,
     response_type: 'code',
     scope: 'openid email profile',
@@ -29,65 +52,67 @@ function buildGoogleAuthUrl(state: string): string {
 
 async function exchangeCodeForTokens(code: string): Promise<{
   access_token: string;
-  refresh_token: string;
-  id_token: string;
+  refresh_token?: string;
+  id_token?: string;
   expires_in: number;
   token_type: string;
-  scope: string;
+  scope?: string;
 }> {
   const params = new URLSearchParams({
-    client_id: GOOGLE_CLIENT_ID,
-    client_secret: GOOGLE_CLIENT_SECRET,
+    client_id: clientId(),
+    client_secret: clientSecret(),
     code,
     redirect_uri: GOOGLE_REDIRECT_URI,
     grant_type: 'authorization_code',
   });
 
   return new Promise((resolve, reject) => {
-    const request = net.request({
-      method: 'POST',
-      url: GOOGLE_TOKEN_URL,
-    });
-    request.setHeader('Content-Type', 'application/x-www-form-urlencoded');
-    request.setHeader('Accept', 'application/json');
-
-    let body = '';
-    request.on('response', (res) => {
-      res.on('data', (chunk) => (body += chunk));
-      res.on('end', () => {
+    const request = net.request({ method: 'POST', url: GOOGLE_TOKEN_URL });
+    const chunks: Buffer[] = [];
+    request.on('response', (response) => {
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
         try {
-          const data = JSON.parse(body);
-          if (data.error) reject(new Error(data.error_description || data.error));
-          else resolve(data);
-        } catch {
-          reject(new Error('Resposta inválida do Google token endpoint'));
+          const json = JSON.parse(body) as Record<string, unknown>;
+          if (json.error) {
+            reject(new Error(String(json.error_description ?? json.error)));
+            return;
+          }
+          resolve(json as never);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
       });
     });
     request.on('error', reject);
+    request.setHeader('Content-Type', 'application/x-www-form-urlencoded');
     request.write(params.toString());
     request.end();
   });
 }
 
-async function fetchGoogleUserInfo(accessToken: string): Promise<{ sub: string; email: string; name: string; picture: string; email_verified: boolean }> {
+async function fetchGoogleUserInfo(accessToken: string): Promise<{
+  sub: string;
+  email: string;
+  name?: string;
+  picture?: string;
+  email_verified?: boolean;
+}> {
   return new Promise((resolve, reject) => {
     const request = net.request({
       method: 'GET',
       url: GOOGLE_USERINFO_URL,
     });
     request.setHeader('Authorization', `Bearer ${accessToken}`);
-    request.setHeader('Accept', 'application/json');
-
-    let body = '';
-    request.on('response', (res) => {
-      res.on('data', (chunk) => (body += chunk));
-      res.on('end', () => {
+    const chunks: Buffer[] = [];
+    request.on('response', (response) => {
+      response.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+      response.on('end', () => {
         try {
-          const data = JSON.parse(body);
-          resolve(data);
-        } catch {
-          reject(new Error('Resposta inválida do Google userinfo'));
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
         }
       });
     });
@@ -96,44 +121,41 @@ async function fetchGoogleUserInfo(accessToken: string): Promise<{ sub: string; 
   });
 }
 
-async function getOrCreateUserFromGoogle(googleData: {
-  sub: string;
-  email: string;
-  name: string;
-  picture: string;
-  email_verified: boolean;
-}, tokens: {
-  access_token: string;
-  refresh_token: string;
-  id_token: string;
-  expires_in: number;
-  token_type: string;
-  scope: string;
-}): Promise<GoogleAuthCallbackResult> {
-  const repo = getAuthRepository();
-
-  let user = repo.getUserByProvider('google', googleData.sub);
-  let isNewUser = false;
-
-  if (!user) {
-    user = repo.getUserByEmail(googleData.email);
+function getOrCreateUserFromGoogle(
+  googleData: {
+    sub: string;
+    email: string;
+    name?: string;
+    picture?: string;
+    email_verified?: boolean;
+  },
+  tokens: {
+    access_token: string;
+    refresh_token?: string;
+    id_token?: string;
+    expires_in: number;
+    token_type: string;
+    scope?: string;
   }
+): GoogleAuthCallbackResult {
+  const repo = getAuthRepository();
+  let user =
+    repo.getUserByProvider('google', googleData.sub) ?? repo.getUserByEmail(googleData.email);
 
-  if (!user) {
-    isNewUser = true;
-    user = repo.createUser({
-      id: `u-${crypto.randomUUID()}`,
-      email: googleData.email,
-      name: googleData.name,
-      image: googleData.picture,
-      emailVerified: googleData.email_verified ? new Date().toISOString() : null,
-    });
-  } else {
-    // Atualiza perfil se mudou
+  if (user) {
     repo.updateUser(user.id, {
-      name: googleData.name,
-      image: googleData.picture,
+      name: googleData.name ?? user.name,
+      image: googleData.picture ?? user.image,
       emailVerified: googleData.email_verified ? new Date().toISOString() : user.emailVerified,
+    });
+    user = repo.getUser(user.id)!;
+  } else {
+    user = repo.createUser({
+      id: crypto.randomUUID(),
+      email: googleData.email,
+      name: googleData.name ?? null,
+      image: googleData.picture ?? null,
+      emailVerified: googleData.email_verified ? new Date().toISOString() : null,
     });
   }
 
@@ -142,28 +164,27 @@ async function getOrCreateUserFromGoogle(googleData: {
     type: 'oauth',
     provider: 'google',
     providerAccountId: googleData.sub,
-    refreshToken: tokens.refresh_token,
+    refreshToken: tokens.refresh_token ?? null,
     accessToken: tokens.access_token,
-    expiresAt: Math.floor(Date.now() / 1000) + tokens.expires_in,
-    tokenType: tokens.token_type,
-    scope: tokens.scope,
-    idToken: tokens.id_token,
+    expiresAt: Math.floor(Date.now() / 1000) + (tokens.expires_in ?? 3600),
+    tokenType: tokens.token_type ?? 'Bearer',
+    scope: tokens.scope ?? 'openid email profile',
+    idToken: tokens.id_token ?? null,
     sessionState: null,
   });
 
+  currentUser = user;
   return { user, account };
 }
 
-let authWindow: BrowserWindow | null = null;
-let authResolver: ((result: GoogleAuthCallbackResult) => void) | null = null;
-let authRejecter: ((err: Error) => void) | null = null;
-let pendingState: string | null = null;
-let pendingResolve: ((result: GoogleAuthStartResult) => void) | null = null;
-let pendingReject: ((err: Error) => void) | null = null;
-
-export function startGoogleAuth(): Promise<GoogleAuthStartResult> {
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
-    return Promise.reject(new Error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET não configurados'));
+/** Abre janela Google, captura redirect e cria sessão local. */
+export function loginWithGoogle(): Promise<GoogleAuthCallbackResult> {
+  if (!clientId() || !clientSecret()) {
+    return Promise.reject(
+      new Error(
+        'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET não configurados. Coloque no .env.local da raiz e reinicie o app.'
+      )
+    );
   }
 
   const state = generateState();
@@ -171,31 +192,85 @@ export function startGoogleAuth(): Promise<GoogleAuthStartResult> {
   const authUrl = buildGoogleAuthUrl(state);
 
   return new Promise((resolve, reject) => {
-    pendingResolve = resolve;
-    pendingReject = reject;
-    resolve({ authUrl, state });
+    const authWindow = new BrowserWindow({
+      width: 520,
+      height: 720,
+      title: 'Entrar com Google',
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
+    const handleRedirect = async (url: string) => {
+      if (!url.startsWith(GOOGLE_REDIRECT_URI)) return;
+      try {
+        const urlObj = new URL(url);
+        const error = urlObj.searchParams.get('error');
+        if (error) throw new Error(urlObj.searchParams.get('error_description') ?? error);
+        const code = urlObj.searchParams.get('code');
+        const returnedState = urlObj.searchParams.get('state');
+        if (!code) throw new Error('Código de autorização não recebido');
+        if (!returnedState || returnedState !== state) throw new Error('State OAuth inválido');
+
+        const tokens = await exchangeCodeForTokens(code);
+        const googleData = await fetchGoogleUserInfo(tokens.access_token);
+        const result = getOrCreateUserFromGoogle(googleData, tokens);
+        if (!authWindow.isDestroyed()) authWindow.close();
+        finish(() => resolve(result));
+      } catch (err) {
+        if (!authWindow.isDestroyed()) authWindow.close();
+        finish(() => reject(err instanceof Error ? err : new Error(String(err))));
+      }
+    };
+
+    authWindow.webContents.on('will-redirect', (event, url) => {
+      if (url.startsWith(GOOGLE_REDIRECT_URI)) {
+        event.preventDefault();
+        void handleRedirect(url);
+      }
+    });
+    authWindow.webContents.on('will-navigate', (event, url) => {
+      if (url.startsWith(GOOGLE_REDIRECT_URI)) {
+        event.preventDefault();
+        void handleRedirect(url);
+      }
+    });
+
+    authWindow.on('closed', () => {
+      finish(() => reject(new Error('Login cancelado')));
+    });
+
+    void authWindow.loadURL(authUrl);
   });
 }
 
-export function resolveGoogleAuth(result: GoogleAuthCallbackResult): void {
-  if (pendingResolve) {
-    // Note: this is a design issue - we resolve start with callback result
-    // For now, we'll handle it in the IPC handler
-    pendingResolve = null;
-    pendingReject = null;
+export function startGoogleAuth(): Promise<GoogleAuthStartResult> {
+  if (!clientId() || !clientSecret()) {
+    return Promise.reject(
+      new Error('GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET não configurados')
+    );
   }
+  const state = generateState();
+  pendingState = state;
+  return Promise.resolve({ authUrl: buildGoogleAuthUrl(state), state });
 }
 
-// IPC handlers
 export function registerAuthHandlers(): void {
-  ipcMain.handle('auth:get-current-user', async () => {
-    // Por enquanto retorna null; sessão persistida virá depois
-    return null;
-  });
+  ipcMain.handle('auth:get-current-user', async () => currentUser);
 
-  ipcMain.handle('auth:get-google-auth-url', async () => {
-    return startGoogleAuth();
-  });
+  ipcMain.handle('auth:get-google-auth-url', async () => startGoogleAuth());
+
+  /** Fluxo completo: abre janela + callback + sessão. */
+  ipcMain.handle('auth:login-with-google', async () => loginWithGoogle());
 
   ipcMain.handle('auth:google-callback', async (_event, params: { code: string; state: string }) => {
     if (params.state !== pendingState) throw new Error('State inválido');
@@ -205,7 +280,7 @@ export function registerAuthHandlers(): void {
   });
 
   ipcMain.handle('auth:logout', async () => {
-    // Limpa estado local (sessão em memória)
+    currentUser = null;
     return { ok: true };
   });
 }

@@ -231,6 +231,24 @@ export interface RomScanResult {
   added: number;
 }
 
+export interface RetroSetupStatus {
+  romsRoot: string;
+  emulatorsRoot: string;
+  romsConfigured: boolean;
+  emulatorsDetected: number;
+}
+
+export interface LocalGamesSetupStatus {
+  gamesRoot: string;
+  configured: boolean;
+  gamesFound: number;
+}
+
+export interface LocalGamesScanResult {
+  found: number;
+  added: number;
+}
+
 export type RatingSource = 'rawg' | 'metacritic' | 'steam';
 
 export interface GameRating {
@@ -409,6 +427,9 @@ export interface DesktopApi {
   libraryMergeSources(args: { targetGameId: string; sourceIds: string[] }): Promise<Game>;
   librarySeparateSource(sourceId: string): Promise<Game>;
   libraryPossibleDuplicates(): Promise<Array<{ a: Game; b: Game }>>;
+  libraryLocalSetupGet(): Promise<LocalGamesSetupStatus>;
+  libraryPickGamesRoot(): Promise<LocalGamesSetupStatus | null>;
+  libraryScanLocalGames(): Promise<LocalGamesScanResult>;
   pickExe(): Promise<string | null>;
   pickCover(): Promise<string | null>;
   coverFromUrl(url: string): Promise<string>;
@@ -429,6 +450,10 @@ export interface DesktopApi {
   emulationMapRom(consoleId: string): Promise<{ romPath: string } | null>;
   emulationRemoveRom(sourceId: string): Promise<{ ok: boolean }>;
   emulationLaunch(sourceId: string): Promise<LaunchResult>;
+  emulationSetupGet(): Promise<RetroSetupStatus>;
+  emulationPickRomsRoot(): Promise<RetroSetupStatus | null>;
+  emulationPickEmulatorsRoot(): Promise<RetroSetupStatus | null>;
+  emulationScanAll(): Promise<RomScanResult>;
   onEmulationScanProgress(cb: (data: { consoleId?: string; scanned: number; total: number }) => void): () => void;
   settingsGet(key: string): Promise<string | null>;
   settingsSet(key: string, value: string): Promise<void>;
@@ -468,8 +493,10 @@ export interface DesktopApi {
   // Auth
   authGetCurrentUser(): Promise<User | null>;
   authGetGoogleAuthUrl(): Promise<GoogleAuthStartResult>;
+  authLoginWithGoogle(): Promise<GoogleAuthCallbackResult>;
   authGoogleCallback(params: { code: string; state: string }): Promise<GoogleAuthCallbackResult>;
   authGetPlatformAuthUrl(platform: 'steam' | 'gog' | 'epic' | 'amazon'): Promise<PlatformOAuthStartResult>;
+  authConnectPlatform(platform: 'steam' | 'gog' | 'epic' | 'amazon'): Promise<PlatformAccount>;
   authPlatformCallback(params: { platform: string; code: string; state: string }): Promise<PlatformAccount>;
   authListPlatformAccounts(): Promise<PlatformAccount[]>;
   authUnlinkPlatform(platform: string): Promise<{ ok: boolean }>;

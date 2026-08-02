@@ -169,6 +169,118 @@ export async function setDefaultFolder(consoleId: string, folder: string): Promi
   setSetting(`console.${consoleId}.defaultFolder`, folder);
 }
 
+export interface RetroSetupStatus {
+  romsRoot: string;
+  emulatorsRoot: string;
+  romsConfigured: boolean;
+  emulatorsDetected: number;
+}
+
+export function getRetroSetup(): RetroSetupStatus {
+  const romsRoot = getSetting('emulation.romsRoot')?.trim() ?? '';
+  const emulatorsRoot = getSetting('emulation.emulatorsRoot')?.trim() ?? '';
+  let emulatorsDetected = 0;
+  for (const emu of DEFAULT_EMULATORS) {
+    if (getSetting(`emulator.${emu.id}.path`)) emulatorsDetected += 1;
+  }
+  return {
+    romsRoot,
+    emulatorsRoot,
+    romsConfigured: Boolean(romsRoot),
+    emulatorsDetected,
+  };
+}
+
+/**
+ * Pasta raiz de ROMs (onboarding): aplica a todos os consoles.
+ * Prefer subpasta snes/gba/… se existir; senão a própria raiz (scan por extensão).
+ */
+export async function setRomsRoot(folder: string): Promise<RetroSetupStatus> {
+  const trimmed = folder.trim();
+  setSetting('emulation.romsRoot', trimmed);
+  if (trimmed) {
+    const consoles = await getConsoles();
+    for (const c of consoles) {
+      const byId = path.join(trimmed, c.id);
+      const byShort = path.join(trimmed, c.shortName);
+      let chosen = trimmed;
+      try {
+        await fs.access(byId);
+        chosen = byId;
+      } catch {
+        try {
+          await fs.access(byShort);
+          chosen = byShort;
+        } catch {
+          chosen = trimmed;
+        }
+      }
+      setSetting(`console.${c.id}.defaultFolder`, chosen);
+    }
+  }
+  return getRetroSetup();
+}
+
+/** Pasta de emuladores: detecta exes conhecidos e grava emulator.<id>.path. */
+export async function setEmulatorsRoot(folder: string): Promise<RetroSetupStatus> {
+  const trimmed = folder.trim();
+  setSetting('emulation.emulatorsRoot', trimmed);
+  if (!trimmed) return getRetroSetup();
+
+  const emulators = await getEmulators();
+  for (const emu of emulators) {
+    const found = await findExeUnder(trimmed, emu);
+    if (found) setSetting(`emulator.${emu.id}.path`, found);
+  }
+  for (const [id, hints] of Object.entries(DETECT_HINTS)) {
+    if (getSetting(`emulator.${id}.path`)) continue;
+    for (const hint of hints) {
+      const base = path.basename(expandEnv(hint));
+      const candidate = path.join(trimmed, base);
+      try {
+        await fs.access(candidate);
+        setSetting(`emulator.${id}.path`, candidate);
+        break;
+      } catch {
+        // next
+      }
+    }
+  }
+  return getRetroSetup();
+}
+
+async function findExeUnder(root: string, emu: EmulatorProfile): Promise<string | null> {
+  const names = new Set(
+    [
+      ...emu.detectCandidates.map((c) => path.basename(c).toLowerCase()),
+      `${emu.id.toLowerCase()}.exe`,
+    ].filter(Boolean)
+  );
+
+  const queue: Array<{ dir: string; depth: number }> = [{ dir: root, depth: 0 }];
+  while (queue.length > 0) {
+    const { dir, depth } = queue.shift()!;
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (isHiddenEntry(entry.name)) continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isFile() && names.has(entry.name.toLowerCase())) return full;
+      if (entry.isDirectory() && depth < 2) {
+        const folderHit = emu.detectCandidates.some((c) =>
+          c.toLowerCase().includes(entry.name.toLowerCase())
+        );
+        if (folderHit || depth === 0) queue.push({ dir: full, depth: depth + 1 });
+      }
+    }
+  }
+  return null;
+}
+
 export async function gamesByConsole(consoleId: string) {
   return getLibraryRepository().listByConsole(consoleId);
 }

@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, net } from 'electron';
 import { URLSearchParams } from 'node:url';
 import { getAuthRepository, getSetting } from './db';
+import { getCurrentUserId } from './auth';
 import type { PlatformAccount, PlatformOAuthStartResult } from '../shared/api';
 
 // ---- Constantes por plataforma ----
@@ -50,8 +51,10 @@ const PLATFORM_CONFIGS: Record<'steam' | 'gog' | 'epic' | 'amazon', PlatformOAut
     authUrl: 'https://auth.gog.com/authorization',
     tokenUrl: 'https://auth.gog.com/token',
     userInfoUrl: 'https://api.gog.com/v1/user',
-    clientId: process.env.GOG_CLIENT_ID ?? '',
-    clientSecret: process.env.GOG_CLIENT_SECRET ?? '',
+    clientId: process.env.GOG_CLIENT_ID || '46899977096215655',
+    clientSecret:
+      process.env.GOG_CLIENT_SECRET ||
+      '9d85c43b1482497dbbce61f6e4aa173b4338ee1714063636b9f1ac651a6d45f6',
     redirectUri: 'http://localhost:3000/auth/callback/gog',
     scope: 'profile:read',
     extractUserId: (data: { userId?: string }) => String(data.userId || ''),
@@ -63,8 +66,8 @@ const PLATFORM_CONFIGS: Record<'steam' | 'gog' | 'epic' | 'amazon', PlatformOAut
     authUrl: 'https://www.epicgames.com/id/authorize',
     tokenUrl: 'https://api.epicgames.dev/epic/oauth/v1/token',
     userInfoUrl: 'https://api.epicgames.dev/epic/id/v1/accounts/me',
-    clientId: process.env.EPIC_CLIENT_ID ?? '',
-    clientSecret: process.env.EPIC_CLIENT_SECRET ?? '',
+    clientId: process.env.EPIC_CLIENT_ID || '34a02cf8f4414e29b15921876da36f9a',
+    clientSecret: process.env.EPIC_CLIENT_SECRET || 'daafbccc737745039dffe53d94fc76cf',
     redirectUri: 'http://localhost:3000/auth/callback/epic',
     scope: 'basic_profile',
     extractUserId: (data: { account_id?: string }) => data.account_id || '',
@@ -91,13 +94,26 @@ function generateState(): string {
 }
 
 function buildAuthUrl(config: PlatformOAuthConfig, state: string): string {
+  if (config.platform === 'steam') {
+    const returnTo = `${config.redirectUri}?state=${encodeURIComponent(state)}`;
+    const params = new URLSearchParams({
+      'openid.ns': 'http://specs.openid.net/auth/2.0',
+      'openid.mode': 'checkid_setup',
+      'openid.return_to': returnTo,
+      'openid.realm': 'http://localhost:3000',
+      'openid.identity': 'http://specs.openid.net/auth/2.0/identifier_select',
+      'openid.claimed_id': 'http://specs.openid.net/auth/2.0/identifier_select',
+    });
+    return `${config.authUrl}?${params.toString()}`;
+  }
+
   const params = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: config.redirectUri,
     response_type: 'code',
     scope: config.scope,
     state,
-    ...config.extraAuthParams,
+    ...(config.extraAuthParams ?? {}),
   });
   return `${config.authUrl}?${params.toString()}`;
 }
@@ -224,28 +240,40 @@ async function handleSteamCallback(params: URLSearchParams): Promise<{
 }
 
 // Estado pendente por plataforma
-const pendingStates = new Map<string, { resolve: (v: PlatformOAuthStartResult) => void; reject: (e: Error) => void }>();
-const callbackStates = new Map<string, string>(); // state -> platform
+const pendingStates = new Map<
+  string,
+  { resolve: (v: PlatformAccount) => void; reject: (e: Error) => void }
+>();
 
-function startPlatformAuth(platform: 'steam' | 'gog' | 'epic' | 'amazon'): Promise<PlatformOAuthStartResult> {
+function requireUserId(): string {
+  const fromSession = getCurrentUserId();
+  if (fromSession) return fromSession;
+  const fallback = getAuthRepository().getFirstUserId();
+  if (!fallback) throw new Error('Faça login com Google primeiro');
+  return fallback;
+}
+
+/** Abre janela OAuth da loja, captura redirect e grava platform_accounts. */
+export function connectPlatform(
+  platform: 'steam' | 'gog' | 'epic' | 'amazon'
+): Promise<PlatformAccount> {
   const config = PLATFORM_CONFIGS[platform];
-  if (!config.clientId || !config.clientSecret) {
-    if (platform !== 'steam') { // Steam não precisa de client secret
-      return Promise.reject(new Error(`${platform.toUpperCase()}_CLIENT_ID/SECRET não configurados`));
-    }
+  if (platform !== 'steam' && (!config.clientId || !config.clientSecret)) {
+    return Promise.reject(
+      new Error(`${platform.toUpperCase()}_CLIENT_ID/SECRET não configurados`)
+    );
   }
 
+  const userId = requireUserId();
   const state = generateState();
   const authUrl = buildAuthUrl(config, state);
-
-  callbackStates.set(state, platform);
 
   return new Promise((resolve, reject) => {
     pendingStates.set(state, { resolve, reject });
 
     const authWindow = new BrowserWindow({
-      width: 500,
-      height: 650,
+      width: 520,
+      height: 720,
       title: `Conectar ${platform.charAt(0).toUpperCase() + platform.slice(1)}`,
       autoHideMenuBar: true,
       webPreferences: {
@@ -254,79 +282,72 @@ function startPlatformAuth(platform: 'steam' | 'gog' | 'epic' | 'amazon'): Promi
       },
     });
 
-    authWindow.loadURL(authUrl);
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      pendingStates.delete(state);
+      fn();
+    };
 
-    authWindow.webContents.on('will-redirect', async (event, url) => {
-      const config = PLATFORM_CONFIGS[platform];
+    const handleRedirect = async (url: string) => {
+      if (!url.startsWith(config.redirectUri)) return;
+      try {
+        const urlObj = new URL(url);
+        const error = urlObj.searchParams.get('error');
+        if (error) throw new Error(`${platform}: ${error}`);
+
+        const returnedState = urlObj.searchParams.get('state');
+        if (returnedState && returnedState !== state) {
+          throw new Error('State OAuth inválido');
+        }
+
+        let account: PlatformAccount;
+        if (platform === 'steam') {
+          // OpenID devolve params na query; serializa para finishPlatformAuth
+          const code = urlObj.searchParams.toString();
+          account = await finishPlatformAuth(userId, platform, code, state);
+        } else {
+          const code = urlObj.searchParams.get('code');
+          if (!code) throw new Error('Código de autorização não recebido');
+          account = await finishPlatformAuth(userId, platform, code, state);
+        }
+
+        if (!authWindow.isDestroyed()) authWindow.close();
+        finish(() => resolve(account));
+      } catch (err) {
+        if (!authWindow.isDestroyed()) authWindow.close();
+        finish(() => reject(err instanceof Error ? err : new Error(String(err))));
+      }
+    };
+
+    authWindow.webContents.on('will-redirect', (event, url) => {
       if (url.startsWith(config.redirectUri)) {
         event.preventDefault();
-        try {
-          const urlObj = new URL(url);
-          const code = urlObj.searchParams.get('code');
-          const returnedState = urlObj.searchParams.get('state');
-          const error = urlObj.searchParams.get('error');
-
-          if (error) throw new Error(`${platform}: ${error}`);
-
-          if (!returnedState) throw new Error('State OAuth não recebido');
-
-          const pending = pendingStates.get(returnedState);
-          if (!pending) throw new Error('State expirado ou inválido');
-          if (returnedState !== state) throw new Error('State OAuth inválido');
-
-          // Steam tem fluxo especial (OpenID)
-          let result: { externalUserId: string; displayName: string; metadata: Record<string, unknown> };
-          if (platform === 'steam') {
-            result = await handleSteamCallback(urlObj.searchParams);
-          } else {
-            if (!code) throw new Error('Código de autorização não recebido');
-            const tokens = await exchangeCodeForTokens(config, code);
-            const userData = await fetchUserInfo(config, tokens.access_token);
-            result = {
-              externalUserId: config.extractUserId(userData),
-              displayName: config.extractDisplayName(userData),
-              metadata: {
-                ...config.extractMetadata(userData),
-                accessToken: tokens.access_token,
-                refreshToken: tokens.refresh_token,
-                expiresIn: tokens.expires_in,
-              },
-            };
-          }
-
-          authWindow.close();
-          pendingStates.delete(state);
-          callbackStates.delete(state);
-
-          resolve({
-            authUrl: '', // já abriu
-            state,
-            platform,
-          });
-
-          // O callback real será feito via auth:platform-callback IPC
-          // Aqui apenas fechamos a janela e retornamos sucesso do start
-        } catch (err) {
-          authWindow.close();
-          pendingStates.delete(state);
-          callbackStates.delete(state);
-          reject(err instanceof Error ? err : new Error(String(err)));
-        }
+        void handleRedirect(url);
+      }
+    });
+    authWindow.webContents.on('will-navigate', (event, url) => {
+      if (url.startsWith(config.redirectUri)) {
+        event.preventDefault();
+        void handleRedirect(url);
       }
     });
 
     authWindow.on('closed', () => {
-      const pending = pendingStates.get(state);
-      if (pending) {
-        pendingStates.delete(state);
-        callbackStates.delete(state);
-        pending.reject(new Error('Login cancelado'));
-      }
+      finish(() => reject(new Error('Conexão cancelada')));
     });
+
+    void authWindow.loadURL(authUrl);
   });
 }
 
-async function finishPlatformAuth(userId: string, platform: string, code: string, state: string): Promise<PlatformAccount> {
+async function finishPlatformAuth(
+  userId: string,
+  platform: string,
+  code: string,
+  _state: string
+): Promise<PlatformAccount> {
   const config = PLATFORM_CONFIGS[platform as 'steam' | 'gog' | 'epic' | 'amazon'];
   if (!config) throw new Error(`Plataforma desconhecida: ${platform}`);
 
@@ -338,7 +359,6 @@ async function finishPlatformAuth(userId: string, platform: string, code: string
   let expiresIn: number | undefined;
 
   if (platform === 'steam') {
-    // Para Steam, o code contém os params OpenID
     const params = new URLSearchParams(code);
     result = await handleSteamCallback(params);
   } else {
@@ -366,48 +386,45 @@ async function finishPlatformAuth(userId: string, platform: string, code: string
     accessToken,
     refreshToken,
     tokenExpiresAt,
-    metadata: {
-      ...result.metadata,
-      accessToken: undefined, // não salva token bruto no metadata
-      refreshToken: undefined,
-    },
+    metadata: result.metadata,
   });
 }
 
 export function registerPlatformAuthHandlers(): void {
-  ipcMain.handle('auth:get-platform-auth-url', async (_event, platform: 'steam' | 'gog' | 'epic' | 'amazon') => {
-    // Retorna URL para abrir no browser - o renderer vai abrir a janela
-    const config = PLATFORM_CONFIGS[platform];
-    const state = generateState();
-    callbackStates.set(state, platform);
-    const authUrl = buildAuthUrl(config, state);
-    return { authUrl, state, platform };
-  });
+  ipcMain.handle(
+    'auth:get-platform-auth-url',
+    async (_event, platform: 'steam' | 'gog' | 'epic' | 'amazon'): Promise<PlatformOAuthStartResult> => {
+      const config = PLATFORM_CONFIGS[platform];
+      const state = generateState();
+      return { authUrl: buildAuthUrl(config, state), state, platform };
+    }
+  );
 
-  ipcMain.handle('auth:platform-callback', async (_event, params: { platform: string; code: string; state: string }) => {
-    // Precisa do userId - por enquanto usa o primeiro usuário logado
-    const repo = getAuthRepository();
-    // TODO: pegar user da sessão real
-    const userId = repo.getFirstUserId();
-    if (!userId) throw new Error('Faça login com Google primeiro');
+  ipcMain.handle(
+    'auth:connect-platform',
+    async (_event, platform: 'steam' | 'gog' | 'epic' | 'amazon') => connectPlatform(platform)
+  );
 
-    return finishPlatformAuth(userId, params.platform, params.code, params.state);
-  });
+  ipcMain.handle(
+    'auth:platform-callback',
+    async (_event, params: { platform: string; code: string; state: string }) => {
+      const userId = requireUserId();
+      return finishPlatformAuth(userId, params.platform, params.code, params.state);
+    }
+  );
 
   ipcMain.handle('auth:list-platform-accounts', async () => {
-    const repo = getAuthRepository();
-    // TODO: pegar user da sessão real
-    const userId = repo.getFirstUserId();
-    if (!userId) return [];
-    return repo.listPlatformAccounts(userId);
+    try {
+      const userId = requireUserId();
+      return getAuthRepository().listPlatformAccounts(userId);
+    } catch {
+      return [];
+    }
   });
 
   ipcMain.handle('auth:unlink-platform', async (_event, platform: string) => {
-    const repo = getAuthRepository();
-    // TODO: pegar user da sessão real
-    const userId = repo.getFirstUserId();
-    if (!userId) throw new Error('Usuário não logado');
-    repo.removePlatformAccount(userId, platform);
+    const userId = requireUserId();
+    getAuthRepository().removePlatformAccount(userId, platform);
     return { ok: true };
   });
 }

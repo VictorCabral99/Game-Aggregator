@@ -66,6 +66,8 @@ export interface ProviderGameRow {
   sizeBytes?: number;
   coverUrl?: string;
   installPath?: string;
+  executable?: string;
+  cwd?: string;
   isInstalled?: boolean;
 }
 
@@ -295,11 +297,14 @@ export class LibraryRepository {
         this.db
           .prepare(
             `UPDATE game_sources SET title = ?, install_path = COALESCE(?, install_path),
+             executable = COALESCE(?, executable), cwd = COALESCE(?, cwd),
              size_bytes = COALESCE(?, size_bytes), is_installed = ?, updated_at = ? WHERE id = ?`
           )
           .run(
             item.title.trim(),
             item.installPath ?? null,
+            item.executable?.trim() || null,
+            item.cwd?.trim() || null,
             item.sizeBytes ?? null,
             item.isInstalled === false ? 0 : 1,
             now,
@@ -354,7 +359,7 @@ export class LibraryRepository {
       this.db
         .prepare(
           `INSERT INTO game_sources (id, game_id, platform, external_id, title, install_path, executable, cwd, is_installed, size_bytes, raw_json, last_played_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, NULL, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`
         )
         .run(
           `s-${randomUUID().replace(/-/g, '')}`,
@@ -363,6 +368,8 @@ export class LibraryRepository {
           externalId ?? null,
           title,
           item.installPath ?? null,
+          item.executable?.trim() || null,
+          item.cwd?.trim() || null,
           item.isInstalled === false ? 0 : 1,
           item.sizeBytes ?? null,
           now,

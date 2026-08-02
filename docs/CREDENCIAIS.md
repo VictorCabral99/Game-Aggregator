@@ -29,15 +29,28 @@ DATABASE_URL="file:./dev.db"
 
 ### 3. Google OAuth — `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
 
-Login obrigatório do app.
+Login obrigatório do app (web + desktop).
 
 1. Abra [Google Cloud Console](https://console.cloud.google.com/)
 2. Crie um projeto (ou use um existente)
-3. **APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth**
-4. Tipo: **Aplicativo da Web**
-5. URI de redirecionamento autorizado:
-   - `http://localhost:3000/api/auth/callback/google`
-6. Copie **Client ID** e **Client Secret** para o `.env.local`
+3. **APIs e serviços → Tela de consentimento OAuth**
+   - Tipo: **Externo**
+   - App name: `Game Aggregator` (ou o que preferir)
+   - Seu e-mail como suporte + desenvolvedor
+   - Em **Usuários de teste**, adicione o Gmail que vai logar (obrigatório enquanto o app estiver em Testing)
+4. **APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth**
+5. Tipo: **Aplicativo da Web**
+6. **URIs de redirecionamento autorizados** (adicione os dois):
+   - `http://localhost:3000/api/auth/callback/google` ← Next.js / NextAuth (web)
+   - `http://localhost:3000/auth/callback/google` ← Electron desktop
+7. Copie **Client ID** e **Client Secret** para o `.env.local` na raiz:
+
+```env
+GOOGLE_CLIENT_ID=".....apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="GOCSPX-...."
+```
+
+8. Reinicie `npm run dev` / `npm run dev:desktop` (o desktop lê o `.env.local` da raiz no boot).
 
 Na tela de consentimento OAuth, adicione seu e-mail como usuário de teste se o app estiver em modo Testing.
 

@@ -1,3 +1,4 @@
+import './load-env';
 import { app, BrowserWindow, net, protocol } from 'electron';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';

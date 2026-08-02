@@ -4,11 +4,30 @@ import { getLibraryRepository, getSetting } from '../db';
 import { launchPlatformGame } from '../providers';
 import type { CreateGameInput, UpdateGameInput } from '../db/games';
 import type { LibraryImportResult, LibraryExportPayload } from '../../shared/api';
+import {
+  getLocalGamesSetup,
+  scanLocalGamesFolder,
+  setLocalGamesRoot,
+} from '../local-games';
 
 export function registerLibraryHandlers(): void {
   const repo = () => getLibraryRepository();
 
   ipcMain.handle('library:list', () => repo().list());
+
+  ipcMain.handle('library:local-setup-get', () => getLocalGamesSetup());
+
+  ipcMain.handle('library:pick-games-root', async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Selecionar pasta de jogos externos',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return setLocalGamesRoot(result.filePaths[0]);
+  });
+
+  ipcMain.handle('library:scan-local-games', () => scanLocalGamesFolder());
+
 
   ipcMain.handle('library:add', (_event, input: CreateGameInput) => {
     if (!input || !input.title?.trim() || !input.executable?.trim()) {

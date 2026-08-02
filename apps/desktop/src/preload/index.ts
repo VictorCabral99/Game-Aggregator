@@ -35,6 +35,9 @@ const api: DesktopApi = {
   libraryPossibleDuplicates: () => ipcRenderer.invoke('library:possible-duplicates'),
   libraryExport: () => ipcRenderer.invoke('library:export'),
   libraryImport: () => ipcRenderer.invoke('library:import'),
+  libraryLocalSetupGet: () => ipcRenderer.invoke('library:local-setup-get'),
+  libraryPickGamesRoot: () => ipcRenderer.invoke('library:pick-games-root'),
+  libraryScanLocalGames: () => ipcRenderer.invoke('library:scan-local-games'),
   pickExe: () => ipcRenderer.invoke('pick-exe'),
   pickCover: () => ipcRenderer.invoke('pick-cover'),
   coverFromUrl: (url: string) => ipcRenderer.invoke('cover-from-url', url),
@@ -57,6 +60,10 @@ const api: DesktopApi = {
   emulationMapRom: (consoleId: string) => ipcRenderer.invoke('emulation:map-rom', { consoleId }),
   emulationRemoveRom: (sourceId: string) => ipcRenderer.invoke('emulation:remove-rom', sourceId),
   emulationLaunch: (sourceId: string) => ipcRenderer.invoke('emulation:launch', sourceId),
+  emulationSetupGet: () => ipcRenderer.invoke('emulation:setup-get'),
+  emulationPickRomsRoot: () => ipcRenderer.invoke('emulation:pick-roms-root'),
+  emulationPickEmulatorsRoot: () => ipcRenderer.invoke('emulation:pick-emulators-root'),
+  emulationScanAll: () => ipcRenderer.invoke('emulation:scan-all'),
   onEmulationScanProgress: (cb) => {
     const listener = (_e: Electron.IpcRendererEvent, data: { consoleId?: string; scanned: number; total: number }) =>
       cb(data);
@@ -100,10 +107,13 @@ const api: DesktopApi = {
   // Auth
   authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
   authGetGoogleAuthUrl: () => ipcRenderer.invoke('auth:get-google-auth-url'),
+  authLoginWithGoogle: () => ipcRenderer.invoke('auth:login-with-google'),
   authGoogleCallback: (params: { code: string; state: string }) =>
     ipcRenderer.invoke('auth:google-callback', params),
   authGetPlatformAuthUrl: (platform: 'steam' | 'gog' | 'epic' | 'amazon') =>
     ipcRenderer.invoke('auth:get-platform-auth-url', platform),
+  authConnectPlatform: (platform: 'steam' | 'gog' | 'epic' | 'amazon') =>
+    ipcRenderer.invoke('auth:connect-platform', platform),
   authPlatformCallback: (params: { platform: string; code: string; state: string }) =>
     ipcRenderer.invoke('auth:platform-callback', params),
   authListPlatformAccounts: () => ipcRenderer.invoke('auth:list-platform-accounts'),

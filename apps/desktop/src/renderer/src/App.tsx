@@ -24,6 +24,7 @@ import SettingsModal from './components/SettingsModal';
 import WishlistModal from './components/WishlistModal';
 import LoginModal from './components/LoginModal';
 import AccountsPanel from './components/AccountsPanel';
+import StoreConnectScreen from './components/StoreConnectScreen';
 import OnboardingModal from './components/OnboardingModal';
 import Toast from './components/Toast';
 import { useGamepadNav } from './hooks/useGamepadNav';
@@ -94,6 +95,7 @@ export default function App(): JSX.Element {
   const [minRating, setMinRating] = useState(0);
   const [hideNotes, setHideNotes] = useState(false);
   const [user, setUser] = useState<{ id: string; email: string; name: string | null; image: string | null } | null>(null);
+  const [showStoreConnect, setShowStoreConnect] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [ready, setReady] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -172,9 +174,14 @@ export default function App(): JSX.Element {
         setTimeout(deferCovers, 1500);
       }
 
-      // P9-03: onboarding no primeiro uso
-      const done = await window.api.settingsGet('onboarding.done').catch(() => null);
-      if (done !== '1') setShowOnboarding(true);
+      // Pós-login Google: tela de lojas primeiro; depois onboarding Steam legado se ainda marcado
+      const storesDone = await window.api.settingsGet('onboarding.stores').catch(() => null);
+      const steamDone = await window.api.settingsGet('onboarding.done').catch(() => null);
+      if (storesDone !== '1') {
+        setShowStoreConnect(true);
+      } else if (steamDone !== '1') {
+        setShowOnboarding(true);
+      }
     };
     void boot();
     return () => {
@@ -790,12 +797,32 @@ export default function App(): JSX.Element {
         <AccountsPanel onClose={() => setView({ kind: 'settings' })} />
       )}
 
-      {/* Login gate — mostra se não tem usuário */}
+      {/* Login Google → em seguida tela só das 4 lojas */}
       {!user && (
-        <LoginModal onSuccess={setUser} />
+        <LoginModal
+          onSuccess={(u) => {
+            setUser(u);
+            void window.api.settingsGet('onboarding.stores').then((done) => {
+              if (done !== '1') setShowStoreConnect(true);
+            });
+          }}
+        />
       )}
 
-      {showOnboarding && user && (
+      {user && showStoreConnect && (
+        <StoreConnectScreen
+          userName={user.name}
+          onContinue={() => {
+            void window.api.settingsSet('onboarding.stores', '1');
+            void window.api.settingsSet('onboarding.done', '1');
+            setShowStoreConnect(false);
+            void refresh();
+            void window.api.providersSyncAll().then(() => refresh()).catch(() => undefined);
+          }}
+        />
+      )}
+
+      {showOnboarding && user && !showStoreConnect && (
         <OnboardingModal
           steamAvailable={Boolean(steam?.available)}
           steamGames={steam?.gamesCount ?? 0}
