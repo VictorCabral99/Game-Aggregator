@@ -1,7 +1,14 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, net, protocol } from 'electron';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { registerLaunchHandlers } from './ipc/launch';
 import { initDatabase, registerDbHandlers } from './db';
+import { registerLibraryHandlers } from './ipc/library';
+import { registerCoverHandlers } from './ipc/cover';
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'cover', privileges: { secure: true, supportFetchAPI: true, stream: true } },
+]);
 
 function createWindow(): void {
   const win = new BrowserWindow({
@@ -28,9 +35,22 @@ function createWindow(): void {
 app.whenReady().then(() => {
   app.setAppUserModelId('com.gameaggregator.launcher');
 
+  // cover://img/<absolute-path-encoded> → arquivo local (capas da biblioteca)
+  protocol.handle('cover', (req) => {
+    try {
+      const url = new URL(req.url);
+      const filePath = decodeURIComponent(url.pathname.replace(/^\//, ''));
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch {
+      return new Response('not found', { status: 404 });
+    }
+  });
+
   initDatabase();
   registerLaunchHandlers();
   registerDbHandlers();
+  registerLibraryHandlers();
+  registerCoverHandlers();
 
   createWindow();
 

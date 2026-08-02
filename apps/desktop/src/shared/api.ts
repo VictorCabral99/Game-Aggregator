@@ -24,8 +24,40 @@ export interface DbHealth {
   error?: string;
 }
 
+export interface Game {
+  id: string;
+  title: string;
+  executable: string;
+  cwd: string | null;
+  coverPath: string | null;
+  coverUrl: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastPlayedAt: string | null;
+}
+
+export interface CreateGameInput {
+  title: string;
+  executable: string;
+  cwd?: string;
+  coverPath?: string;
+  coverUrl?: string;
+  notes?: string;
+}
+
+export type UpdateGameInput = Partial<CreateGameInput>;
+
 export interface DesktopApi {
   launchExe(req: LaunchRequest): Promise<LaunchResult>;
   dbHealth(): Promise<DbHealth>;
   openPath(path: string): Promise<{ ok: boolean; error?: string }>;
+  libraryList(): Promise<Game[]>;
+  libraryAdd(input: CreateGameInput): Promise<Game>;
+  libraryUpdate(args: { id: string; patch: UpdateGameInput }): Promise<Game>;
+  libraryRemove(id: string): Promise<{ ok: boolean }>;
+  libraryLaunch(id: string): Promise<LaunchResult>;
+  pickExe(): Promise<string | null>;
+  pickCover(): Promise<string | null>;
+  coverFromUrl(url: string): Promise<string>;
 }

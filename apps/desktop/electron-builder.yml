@@ -1,0 +1,36 @@
+appId: com.gameaggregator.launcher
+productName: Game Aggregator Launcher
+copyright: Copyright © 2026
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - out/**/*
+  - package.json
+  - resources/bin/**
+
+extraResources:
+  - from: resources/bin
+    to: bin
+    filter: ["*.exe"]
+
+asar: true
+asarUnpack:
+  - resources/bin/**
+
+win:
+  executableName: GameAggregatorLauncher
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Game Aggregator Launcher
+  deleteAppDataOnUninstall: false

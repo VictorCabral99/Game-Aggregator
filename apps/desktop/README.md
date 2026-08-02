@@ -1,41 +1,54 @@
-# @gagg/desktop — Launcher Electron
+# @gagg/desktop — Launcher de jogos (Electron)
 
-Launcher unificado de jogos (Windows). **Fase 0: fundação.**
+Launcher unificado para Windows. **Não é um fork do Heroic**: reusa sidecars
+(Legendary/gogdl/Nile) e provider próprio de Steam.
 
-> Este app é um produto próprio. Não é fork do Heroic Games Launcher nem do
-> Playnite — reutiliza apenas sidecars CLI (Legendary/gogdl/Nile) quando
-> configurados. Ver `docs/adr/0001-stack.md`.
+## Fase atual
 
-## Rodar
+- **Fase 0** ✅ fundação (monorepo, shell, IPC, SQLite)
+- **Fase 1** ✅ MVP — biblioteca local de `.exe`, fullscreen, capas, instalador NSIS
+- **Fase 2** em andamento — Steam scan/launch, depois Epic/GOG/Amazon
 
-Na raiz do monorepo:
+## Rodar (dev)
 
 ```bash
 npm install
-npm run dev:desktop
+npm run dev:desktop        # raiz do monorepo
 ```
 
-O app abre em fullscreen com:
+App abre em fullscreen. Use `Ctrl+N` para adicionar um jogo.
 
-- botão **Abrir Notepad** (prova do IPC `launch:exe`)
-- indicador de saúde do banco SQLite (`db:health`)
+## Testes/smokes
+
+```bash
+npm run typecheck            # tsc nos workspaces
+npm run build -w @gagg/desktop
+npm run smoke:sidecars       # verifica binários de loja (Fase 2)
+node tools/scripts/repo-smoke.ts   # CRUD da biblioteca local
+```
+
+## Instalador
+
+```bash
+npm run dist -w @gagg/desktop
+```
+
+Artefato em `apps/desktop/dist/Game Aggregator Launcher Setup <versão>.exe`.
 
 ## Estrutura
 
 ```
-src/
-  main/        # processo principal: janela, IPC, DB
-  preload/     # ponte seguro renderer ↔ main
-  renderer/    # UI React
-  shared/      # contrato de tipos do IPC
-resources/bin/ # sidecars (não versionados)
+apps/desktop/
+  src/main/           # window, IPC, db (node:sqlite), providers
+  src/preload/        # bridge contextIsolation
+  src/renderer/       # UI React
+  src/shared/         # contrato IPC compartilhado (types)
+  resources/bin/      # sidecars (Legendary, gogdl, Nile) — fora do git
+  out/                # build electron-vite (gerado)
 ```
 
-## Scripts
+## Notas
 
-| Script | O que faz |
-|--------|-----------|
-| `npm run dev:desktop` (raiz) | Builda `@gagg/core` e sobe o dev server |
-| `npm run build:desktop` (raiz) | Builda core + desktop |
-| `npm run typecheck` (raiz) | Typecheck desktop + core |
-| `npm run smoke:sidecars` (raiz) | Verifica sidecars presentes |
+- Banco: `%APPDATA%/@gagg/desktop/launcher.db` (WAL), migrações em
+  `src/main/db/migrations.ts`.
+- Capas servidas via protocolo `cover://img/<path>` (CSP `img-src` libera `cover:`).

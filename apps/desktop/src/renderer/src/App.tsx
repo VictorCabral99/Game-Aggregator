@@ -1,88 +1,177 @@
-import { useCallback, useEffect, useState } from 'react';
-import type { DbHealth, LaunchResult } from '../../shared/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { CreateGameInput, Game, LaunchResult } from '../../shared/api';
+import GameCard from './components/GameCard';
+import GameDetailModal from './components/GameDetailModal';
+import GameFormModal from './components/GameFormModal';
+import Toast from './components/Toast';
 
-interface LogEntry {
-  ts: string;
+type View =
+  | { kind: 'library' }
+  | { kind: 'detail'; gameId: string }
+  | { kind: 'form'; gameId: string | null };
+
+interface ToastState {
   message: string;
-  ok?: boolean;
+  kind: 'ok' | 'error';
 }
 
-const NOTEPAD = 'C:\\Windows\\System32\\notepad.exe';
+const CARD_W = 200;
+const GAP = 16;
+const PADDING = 48;
 
 export default function App(): JSX.Element {
-  const [dbHealth, setDbHealth] = useState<DbHealth | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
+  const [view, setView] = useState<View>({ kind: 'library' });
+  const [selected, setSelected] = useState(0);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const append = useCallback((message: string, ok?: boolean) => {
-    setLogs((prev) => [...prev.slice(-20), { ts: new Date().toLocaleTimeString(), message, ok }]);
+  const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message, kind });
+    toastTimer.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    const list = await window.api.libraryList();
+    setGames(list);
+    setSelected((prev) => Math.min(prev, Math.max(list.length - 1, 0)));
   }, []);
 
   useEffect(() => {
-    window.api
-      .dbHealth()
-      .then((h) => {
-        setDbHealth(h);
-        append(`DB: ${h.ok ? 'ok' : 'falha'} — ${h.path ?? h.error}`, h.ok);
-      })
-      .catch((err: unknown) => append(`DB check falhou: ${String(err)}`, false));
-  }, [append]);
+    void refresh().catch((err) => notify(String(err), 'error'));
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, [refresh, notify]);
 
-  const launchNotepad = async () => {
-    append(`Lançando: ${NOTEPAD}`);
-    const res: LaunchResult = await window.api.launchExe({ exe: NOTEPAD });
-    append(res.ok ? `Processo iniciado (pid ${res.pid})` : `Erro: ${res.error}`, res.ok);
+  const cols = Math.max(1, Math.floor((window.innerWidth - PADDING * 2) / (CARD_W + GAP)));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (view.kind !== 'library') return;
+      if (e.key === 'n' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        setView({ kind: 'form', gameId: null });
+        return;
+      }
+      if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        setSelected((i) => Math.min(i + 1, games.length - 1));
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        setSelected((i) => Math.max(i - 1, 0));
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelected((i) => Math.min(i + cols, games.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelected((i) => Math.max(i - cols, 0));
+      } else if (e.key === 'Enter' && games.length > 0) {
+        e.preventDefault();
+        setView({ kind: 'detail', gameId: games[selected].id });
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [view, games, selected, cols]);
+
+  const save = async (input: CreateGameInput) => {
+    if (view.kind !== 'form') return;
+    if (view.gameId) {
+      await window.api.libraryUpdate({ id: view.gameId, patch: input });
+      notify('Jogo atualizado');
+    } else {
+      await window.api.libraryAdd(input);
+      notify('Jogo adicionado');
+    }
+    await refresh();
+    setView({ kind: 'library' });
   };
+
+  const remove = async () => {
+    if (view.kind !== 'detail') return;
+    await window.api.libraryRemove(view.gameId);
+    notify('Removido da biblioteca');
+    await refresh();
+    setView({ kind: 'library' });
+  };
+
+  const launch = async (game: Game): Promise<LaunchResult> => {
+    try {
+      const res = await window.api.libraryLaunch(game.id);
+      if (res.ok) {
+        notify(`Iniciando ${game.title}…`);
+        await refresh();
+      }
+      return res;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify(msg, 'error');
+      return { ok: false, error: msg };
+    }
+  };
+
+  const detailGame =
+    view.kind === 'detail' ? games.find((g) => g.id === view.gameId) ?? null : null;
+  const formGame =
+    view.kind === 'form' && view.gameId ? games.find((g) => g.id === view.gameId) ?? null : null;
 
   return (
     <main className="shell">
       <header className="shell__header">
         <h1>Game Aggregator Launcher</h1>
-        <span className="badge">{dbHealth?.ok ? 'DB ok' : 'DB …'}</span>
+        <span className="badge">{games.length} jogos</span>
+        <button type="button" className="primary" onClick={() => setView({ kind: 'form', gameId: null })}>
+          + Adicionar jogo (Ctrl+N)
+        </button>
       </header>
 
-      <section className="panel">
-        <h2>Fase 0 — Fundação</h2>
-        <p>
-          Shell Electron + IPC. Na próxima fase: biblioteca local de jogos (.exe).
-        </p>
-
-        <div className="row">
-          <button type="button" onClick={launchNotepad} className="primary">
-            Abrir Notepad
+      {games.length === 0 ? (
+        <section className="empty">
+          <h2>Biblioteca vazia</h2>
+          <p>Adicione o primeiro jogo (.exe) para começar.</p>
+          <button type="button" className="primary" onClick={() => setView({ kind: 'form', gameId: null })}>
+            Adicionar jogo
           </button>
-          <button type="button" onClick={() => append('Navegador/FS ainda não expostos')}>
-            (placeholder)
-          </button>
-        </div>
-
-        {dbHealth && (
-          <dl className="health">
-            <div>
-              <dt>Path</dt>
-              <dd>{dbHealth.path ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>App</dt>
-              <dd>v{dbHealth.appVersion ?? '?'}</dd>
-            </div>
-            <div>
-              <dt>Schema</dt>
-              <dd>v{dbHealth.schemaVersion ?? '?'}</dd>
-            </div>
-          </dl>
-        )}
-      </section>
-
-      <section className="panel panel--logs">
-        <h2>Log</h2>
-        <ul>
-          {logs.map((l, i) => (
-            <li key={i} className={l.ok === false ? 'log--error' : ''}>
-              {l.ts} — {l.message}
-            </li>
+        </section>
+      ) : (
+        <section className="grid" role="grid">
+          {games.map((game, i) => (
+            <GameCard
+              key={game.id}
+              game={game}
+              selected={i === selected}
+              onSelect={() => setSelected(i)}
+              onOpen={() => setView({ kind: 'detail', gameId: game.id })}
+            />
           ))}
-        </ul>
-      </section>
+        </section>
+      )}
+
+      <footer className="hint">
+        Navegue com as setas · Enter abre o jogo · Ctrl+N adiciona · Clique duplo joga
+      </footer>
+
+      {detailGame && (
+        <GameDetailModal
+          game={detailGame}
+          onClose={() => setView({ kind: 'library' })}
+          onEdit={() => setView({ kind: 'form', gameId: detailGame.id })}
+          onRemove={() => remove()}
+          onLaunch={launch}
+        />
+      )}
+
+      {view.kind === 'form' && (
+        <GameFormModal
+          game={formGame}
+          onClose={() => setView({ kind: 'library' })}
+          onSave={save}
+        />
+      )}
+
+      <Toast message={toast?.message ?? ''} kind={toast?.kind ?? 'ok'} />
     </main>
   );
 }

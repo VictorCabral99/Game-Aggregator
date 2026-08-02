@@ -2,6 +2,8 @@ import { app, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { DbHealth } from '../../shared/api';
+import { applyMigrations } from './migrations';
+import { LibraryRepository } from './games';
 
 let db: DatabaseSync | null = null;
 let dbPath = '';
@@ -13,27 +15,14 @@ export function initDatabase(): DatabaseSync {
   const instance = new DatabaseSync(dbPath);
   instance.exec(`PRAGMA journal_mode = WAL;`);
 
-  instance.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      version INTEGER PRIMARY KEY,
-      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS app_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
-
-  const row = instance
-    .prepare(`SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`)
-    .get() as { version?: number } | undefined;
-  if (!row) {
-    instance.prepare(`INSERT INTO schema_migrations (version) VALUES (1)`).run();
-  }
+  applyMigrations(instance);
 
   db = instance;
   return db;
+}
+
+export function getLibraryRepository(): LibraryRepository {
+  return new LibraryRepository(initDatabase());
 }
 
 export function registerDbHandlers(): void {
