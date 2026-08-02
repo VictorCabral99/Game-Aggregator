@@ -89,6 +89,14 @@ const api: DesktopApi = {
     ipcRenderer.invoke('moonlight:set-settings', patch),
   moonlightPickExe: () => ipcRenderer.invoke('moonlight:pick-exe'),
   moonlightLaunch: () => ipcRenderer.invoke('moonlight:launch'),
+  // System (P9)
+  appVersion: () => ipcRenderer.invoke('app:version'),
+  appChangelog: () => ipcRenderer.invoke('app:changelog'),
+  cacheClear: () => ipcRenderer.invoke('cache:clear'),
+  telemetryStatus: () => ipcRenderer.invoke('telemetry:status'),
+  telemetrySet: (enabled: boolean) => ipcRenderer.invoke('telemetry:set', enabled),
+  updaterCheck: () => ipcRenderer.invoke('updater:check'),
+  updaterDownload: () => ipcRenderer.invoke('updater:download'),
   // Auth
   authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
   authGetGoogleAuthUrl: () => ipcRenderer.invoke('auth:get-google-auth-url'),

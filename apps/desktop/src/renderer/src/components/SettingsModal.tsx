@@ -53,6 +53,8 @@ export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: Se
   const [itadKey, setItadKey] = useState('');
   const [itadCountry, setItadCountry] = useState('');
   const [steamId, setSteamId] = useState('');
+  const [steamPath, setSteamPath] = useState('');
+  const [locale, setLocale] = useState('pt-BR');
   const [activeProfile, setActiveProfile] = useState<ProfileId>('desk');
   const [moonlight, setMoonlight] = useState<MoonlightSettings>({
     path: '',
@@ -62,6 +64,10 @@ export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: Se
   });
   const [moonlightMsg, setMoonlightMsg] = useState<string | null>(null);
   const [backupMsg, setBackupMsg] = useState<string | null>(null);
+  const [systemMsg, setSystemMsg] = useState<string | null>(null);
+  const [telemetryOn, setTelemetryOn] = useState(false);
+  const [sentryDsn, setSentryDsn] = useState('');
+  const [appVersion, setAppVersion] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -82,6 +88,16 @@ export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: Se
       setActiveProfile(profile);
       const ml = await window.api.moonlightSettings();
       setMoonlight(ml);
+      const steam = await window.api.steamStatus().catch(() => null);
+      setSteamPath(steam?.path ?? '');
+      const loc = await window.api.settingsGet('ui.locale');
+      setLocale(loc || 'pt-BR');
+      const tel = await window.api.telemetryStatus();
+      setTelemetryOn(tel.enabled);
+      const dsn = await window.api.settingsGet('keys.sentryDsn');
+      setSentryDsn(dsn ?? '');
+      const ver = await window.api.appVersion();
+      setAppVersion(ver);
       setLoading(false);
     };
     void load();
@@ -161,6 +177,45 @@ export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: Se
     }
     setBackupMsg(`Importados ${res.imported}, ignorados ${res.skipped}`);
     onChanged();
+  };
+
+  const saveSteamPath = async () => {
+    await window.api.steamSetPath(steamPath.trim());
+    onChanged();
+  };
+
+  const saveLocale = async () => {
+    await window.api.settingsSet('ui.locale', locale.trim() || 'pt-BR');
+    onChanged();
+  };
+
+  const clearCache = async () => {
+    setSystemMsg(null);
+    const res = await window.api.cacheClear();
+    setSystemMsg(res.ok ? 'Cache de API e capas limpos' : 'Falha ao limpar cache');
+    onChanged();
+  };
+
+  const toggleTelemetry = async () => {
+    const next = !telemetryOn;
+    setTelemetryOn(next);
+    await window.api.telemetrySet(next);
+    onChanged();
+  };
+
+  const saveSentryDsn = async () => {
+    await window.api.settingsSet('keys.sentryDsn', sentryDsn.trim());
+    onChanged();
+  };
+
+  const checkUpdates = async () => {
+    setSystemMsg(null);
+    const res = await window.api.updaterCheck();
+    setSystemMsg(res.message);
+    if (res.ok && res.updateAvailable) {
+      const dl = await window.api.updaterDownload();
+      setSystemMsg(dl.message);
+    }
   };
 
   return (
@@ -306,6 +361,78 @@ export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: Se
                     Importar
                   </button>
                 </div>
+              </div>
+            </div>
+            <div className="settings__section">
+              <h3>Paths e sistema</h3>
+              <div className="settings__row settings__row--key">
+                <span className="settings__text">
+                  <strong>Path do Steam</strong>
+                  <small>Override manual se a detecção automática falhar</small>
+                </span>
+                <input
+                  type="text"
+                  className="settings__key-input"
+                  placeholder="C:\Program Files (x86)\Steam"
+                  value={steamPath}
+                  onChange={(e) => setSteamPath(e.target.value)}
+                  onBlur={() => void saveSteamPath()}
+                />
+              </div>
+              <div className="settings__row settings__row--key">
+                <span className="settings__text">
+                  <strong>Idioma (UI)</strong>
+                  <small>pt-BR padrão — strings futuras usam esta chave</small>
+                </span>
+                <input
+                  type="text"
+                  className="settings__key-input"
+                  placeholder="pt-BR"
+                  value={locale}
+                  onChange={(e) => setLocale(e.target.value)}
+                  onBlur={() => void saveLocale()}
+                />
+              </div>
+              <div className="settings__row">
+                <span className="settings__text">
+                  <strong>Limpar cache</strong>
+                  <small>Remove api_cache + capas baixadas (P9-04)</small>
+                </span>
+                <button type="button" className="settings__accounts-btn" onClick={() => void clearCache()}>
+                  Limpar
+                </button>
+              </div>
+              <div className="settings__row">
+                <span className="settings__text">
+                  <strong>Atualizações</strong>
+                  <small>
+                    {systemMsg ?? `Versão atual ${appVersion || '…'} — electron-updater (GitHub Releases)`}
+                  </small>
+                </span>
+                <button type="button" className="settings__accounts-btn" onClick={() => void checkUpdates()}>
+                  Verificar
+                </button>
+              </div>
+              <label className="settings__row">
+                <span className="settings__text">
+                  <strong>Telemetria / Sentry (opt-in)</strong>
+                  <small>Desligado por padrão. Só envia crashes se DSN estiver configurado.</small>
+                </span>
+                <input type="checkbox" checked={telemetryOn} onChange={() => void toggleTelemetry()} />
+              </label>
+              <div className="settings__row settings__row--key">
+                <span className="settings__text">
+                  <strong>Sentry DSN</strong>
+                  <small>Opcional — usado só com telemetria ligada</small>
+                </span>
+                <input
+                  type="password"
+                  className="settings__key-input"
+                  placeholder="https://…@….ingest.sentry.io/…"
+                  value={sentryDsn}
+                  onChange={(e) => setSentryDsn(e.target.value)}
+                  onBlur={() => void saveSentryDsn()}
+                />
               </div>
             </div>
             <div className="settings__section">

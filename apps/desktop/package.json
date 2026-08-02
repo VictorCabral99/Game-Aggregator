@@ -1,8 +1,8 @@
 {
   "name": "@gagg/desktop",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Launcher unificado de jogos (Windows) — biblioteca local, Steam em breve.",
+  "description": "Launcher unificado de jogos (Windows) — biblioteca, lojas, emulação, notas e wishlist.",
   "author": "Game Aggregator",
   "main": "out/main/index.js",
   "scripts": {
@@ -15,6 +15,8 @@
   "dependencies": {
     "@gagg/core": "0.1.0",
     "@gagg/providers-meta": "0.1.0",
+    "@tanstack/react-virtual": "^3.14.9",
+    "electron-updater": "^6.8.9",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

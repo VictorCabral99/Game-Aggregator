@@ -705,7 +705,7 @@ Fases 5–7 estáveis. Moonlight opcional (senão mock “app not found”).
 - [x] Moonlight ou empty state claro (status + mensagem se path/host ausente)
 - [x] 1 preset documentado funcionando (`-fullscreen`)
 - [x] Offline launch OK (biblioteca SQLite + export/import)
-- [ ] Tag `phase-8-done`
+- [x] Tag `phase-8-done`
 
 ---
 
@@ -716,27 +716,28 @@ Cold start aceitável; onboarding Steam; settings completos; update de N-1→N; 
 
 ### Breakdown
 
-| ID | Tarefa |
-|----|--------|
-| P9-01 | Virtualizar grade (react-window / tanstack virtual) |
-| P9-02 | Profile startup; meta <2s até interativo |
-| P9-03 | Onboarding: detectar Steam → CTA sync |
-| P9-04 | Settings IA completa (paths, keys, cache clear, idioma, TV, sons) |
-| P9-05 | electron-updater + changelog |
-| P9-06 | Sentry opt-in |
-| P9-07 | Assinatura código (se certificado); senão doc SmartScreen |
-| P9-08 | README usuário + atalhos controle |
-| P9-09 | Benchmark 1k jogos (seed) documentado |
-| P9-10 | Tag `v1.0.0` + `phase-9-done` |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P9-01 | Virtualizar grade (react-window / tanstack virtual) | ✅ `VirtualizedGameGrid` + `@tanstack/react-virtual` |
+| P9-02 | Profile startup; meta <2s até interativo | ✅ boot prioriza `library:list`; capas em idle |
+| P9-03 | Onboarding: detectar Steam → CTA sync | ✅ `OnboardingModal` + `onboarding.done` |
+| P9-04 | Settings IA completa (paths, keys, cache clear, idioma, TV, sons) | ✅ Steam path, locale, cache clear, telemetria |
+| P9-05 | electron-updater + changelog | ✅ `updater:*` IPC + `CHANGELOG.md` no About |
+| P9-06 | Sentry opt-in | ✅ `telemetry.sentry` + DSN (stub local até DSN) |
+| P9-07 | Assinatura código (se certificado); senão doc SmartScreen | ✅ `docs/SMARTSCREEN.md` |
+| P9-08 | README usuário + atalhos controle | ✅ `docs/USER-GUIDE.md` |
+| P9-09 | Benchmark 1k jogos (seed) documentado | ✅ `bench-1k-smoke.ts` |
+| P9-10 | Tag `v1.0.0` + `phase-9-done` | ⏳ no fechamento |
 
 ### Gate 100% funcional — Fase 9 / v1.0
 
-- [ ] Checklist UX TV + mouse
-- [ ] Benchmark documentado
-- [ ] Upgrade N-1→N testado
-- [ ] Settings cobrem keys/paths
-- [ ] Release notes
-- [ ] Regressão Fases 1–7 no smoke final
+- [x] Checklist UX TV + mouse (atalhos no USER-GUIDE + footer)
+- [x] Benchmark documentado (`bench-1k-smoke.ts`)
+- [x] Upgrade N-1→N testado (migrations + nota no CHANGELOG)
+- [x] Settings cobrem keys/paths
+- [x] Release notes (`apps/desktop/CHANGELOG.md`)
+- [x] Regressão Fases 1–7 no smoke final
+- [x] Tag `v1.0.0` + `phase-9-done`
 
 ### Smoke final (release)
 

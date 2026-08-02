@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 
 interface Props {
   onClose: () => void;
@@ -23,7 +23,12 @@ const ATTRIBUTIONS = [
 ];
 
 export default function AboutModal({ onClose }: Props): JSX.Element {
+  const [version, setVersion] = useState('');
+  const [changelog, setChangelog] = useState('');
+
   useEffect(() => {
+    void window.api.appVersion().then(setVersion).catch(() => undefined);
+    void window.api.appChangelog().then(setChangelog).catch(() => undefined);
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
@@ -36,7 +41,8 @@ export default function AboutModal({ onClose }: Props): JSX.Element {
       <div className="modal modal--about" onClick={(e) => e.stopPropagation()}>
         <h2>Sobre</h2>
         <p>
-          <strong>Game Aggregator Launcher</strong> — launcher unificado de jogos para Windows.
+          <strong>Game Aggregator Launcher</strong>
+          {version ? ` v${version}` : ''} — launcher unificado de jogos para Windows.
           Produto próprio: não é um fork do Heroic Games Launcher nem do Playnite. Usa CLIs de
           loja (sidecars) apenas como backend de listagem/launch.
         </p>
@@ -57,6 +63,13 @@ export default function AboutModal({ onClose }: Props): JSX.Element {
           Steam não usa sidecar: scan local de manifests + launch via{' '}
           <span className="mono">steam://</span>.
         </p>
+
+        {changelog && (
+          <>
+            <h3 className="about__subtitle">Changelog</h3>
+            <pre className="about__changelog">{changelog.slice(0, 4000)}</pre>
+          </>
+        )}
 
         <div className="modal__actions">
           <button type="button" onClick={onClose}>Fechar (Esc)</button>

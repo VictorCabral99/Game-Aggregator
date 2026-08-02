@@ -14,6 +14,7 @@ import { registerWishlistHandlers } from './ipc/wishlist';
 import { registerAuthHandlers } from './auth';
 import { registerPlatformAuthHandlers } from './platform-auth';
 import { registerMoonlightHandlers } from './ipc/moonlight';
+import { initTelemetry, registerSystemHandlers } from './ipc/system';
 import { syncWishlistPrices } from './wishlist';
 import { getSetting } from './db';
 
@@ -59,6 +60,7 @@ app.whenReady().then(() => {
   });
 
   initDatabase();
+  initTelemetry();
   registerLaunchHandlers();
   registerDbHandlers();
   registerLibraryHandlers();
@@ -72,6 +74,7 @@ app.whenReady().then(() => {
   registerAuthHandlers();
   registerPlatformAuthHandlers();
   registerMoonlightHandlers();
+  registerSystemHandlers();
 
   // P7-10: sync periódico de preços enquanto o app está aberto (6h).
   const priceSyncMs = 6 * 3600 * 1000;

@@ -10,6 +10,7 @@ files:
   - out/**/*
   - package.json
   - resources/bin/**
+  - CHANGELOG.md
 
 extraResources:
   - from: resources/bin
@@ -19,6 +20,12 @@ extraResources:
 asar: true
 asarUnpack:
   - resources/bin/**
+
+publish:
+  provider: github
+  owner: VictorCabral99
+  repo: Game-Aggregator
+  releaseType: release
 
 win:
   executableName: GameAggregatorLauncher

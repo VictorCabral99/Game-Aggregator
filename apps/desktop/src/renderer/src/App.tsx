@@ -13,6 +13,7 @@ import type {
   StoreStatus,
 } from '../../shared/api';
 import GameCard from './components/GameCard';
+import VirtualizedGameGrid from './components/VirtualizedGameGrid';
 import GameDetailModal from './components/GameDetailModal';
 import GameFormModal from './components/GameFormModal';
 import ProvidersModal from './components/ProvidersModal';
@@ -23,6 +24,7 @@ import SettingsModal from './components/SettingsModal';
 import WishlistModal from './components/WishlistModal';
 import LoginModal from './components/LoginModal';
 import AccountsPanel from './components/AccountsPanel';
+import OnboardingModal from './components/OnboardingModal';
 import Toast from './components/Toast';
 import { useGamepadNav } from './hooks/useGamepadNav';
 import { setSoundsEnabled, uiBack, uiMove, uiSelect } from './lib/sounds';
@@ -92,6 +94,8 @@ export default function App(): JSX.Element {
   const [minRating, setMinRating] = useState(0);
   const [hideNotes, setHideNotes] = useState(false);
   const [user, setUser] = useState<{ id: string; email: string; name: string | null; image: string | null } | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [ready, setReady] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -132,20 +136,47 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    void refresh().catch((err) => notify(String(err), 'error'));
-    void window.api
-      .steamStatus()
-      .then(setSteam)
-      .catch(() => setSteam({ available: false, path: null, gamesCount: 0, lastScanAt: null, error: null }));
-    for (const { id } of STORE_LABELS) {
+    const boot = async () => {
+      const t0 = performance.now();
+      try {
+        await refresh();
+      } catch (err) {
+        notify(String(err), 'error');
+      }
+      setReady(true);
+      const ms = performance.now() - t0;
+      if (ms > 2000) {
+        console.warn(`[startup] library ready in ${Math.round(ms)}ms (meta <2s)`);
+      }
+
       void window.api
-        .storeStatus(id)
-        .then((s) => setStores((prev) => ({ ...prev, [id]: s })))
-        .catch(() => setStores((prev) => ({ ...prev, [id]: null })));
-    }
-    void window.api.coversDownloadMissing().catch(() => undefined);
-    void refreshRatings().catch(() => undefined);
-    void checkAuth().catch(() => undefined);
+        .steamStatus()
+        .then(setSteam)
+        .catch(() => setSteam({ available: false, path: null, gamesCount: 0, lastScanAt: null, error: null }));
+      for (const { id } of STORE_LABELS) {
+        void window.api
+          .storeStatus(id)
+          .then((s) => setStores((prev) => ({ ...prev, [id]: s })))
+          .catch(() => setStores((prev) => ({ ...prev, [id]: null })));
+      }
+      void refreshRatings().catch(() => undefined);
+      void checkAuth().catch(() => undefined);
+
+      // P9-02: capas em idle — não bloqueia first paint
+      const deferCovers = () => {
+        void window.api.coversDownloadMissing().catch(() => undefined);
+      };
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(() => deferCovers(), { timeout: 4000 });
+      } else {
+        setTimeout(deferCovers, 1500);
+      }
+
+      // P9-03: onboarding no primeiro uso
+      const done = await window.api.settingsGet('onboarding.done').catch(() => null);
+      if (done !== '1') setShowOnboarding(true);
+    };
+    void boot();
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
@@ -670,23 +701,25 @@ export default function App(): JSX.Element {
           )}
         </section>
       ) : (
-        <section className="grid" role="grid">
-          {visibleGames.map((game, i) => (
-            <GameCard
-              key={game.id}
-              game={game}
-              selected={i === selected}
-              score={ratings[game.id]?.score}
-              hideScore={hideNotes}
-              onSelect={() => setSelected(i)}
-              onOpen={() => setView({ kind: 'detail', gameId: game.id })}
-            />
-          ))}
-        </section>
+        <VirtualizedGameGrid
+          games={visibleGames}
+          cols={cols}
+          selected={selected}
+          scores={Object.fromEntries(
+            visibleGames.map((g) => [g.id, ratings[g.id]?.score ?? null])
+          )}
+          hideScores={hideNotes}
+          cardHeight={Math.round(profileTokens.cardWidth * 1.45)}
+          gap={profileTokens.cardGap}
+          onSelect={setSelected}
+          onOpen={(gameId) => setView({ kind: 'detail', gameId })}
+        />
       )}
 
+      {!ready && <div className="boot-ready" aria-live="polite">Carregando biblioteca…</div>}
+
       <footer className="hint">
-        Navegue com as setas · Enter abre o jogo · Ctrl+N adiciona · Clique duplo joga
+        Navegue com as setas · Enter abre o jogo · Ctrl+N adiciona · Clique duplo joga · Y busca · Start config
       </footer>
 
       {detailGame && (
@@ -760,6 +793,33 @@ export default function App(): JSX.Element {
       {/* Login gate — mostra se não tem usuário */}
       {!user && (
         <LoginModal onSuccess={setUser} />
+      )}
+
+      {showOnboarding && user && (
+        <OnboardingModal
+          steamAvailable={Boolean(steam?.available)}
+          steamGames={steam?.gamesCount ?? 0}
+          onSyncSteam={async () => {
+            const res = await window.api.steamScan();
+            notify(
+              res.inserted > 0
+                ? `Steam: ${res.inserted} jogos novos (${res.total} no total)`
+                : `Steam: ${res.total} jogos verificados`
+            );
+            await refresh();
+            await window.api.settingsSet('onboarding.done', '1');
+            setShowOnboarding(false);
+          }}
+          onSkip={() => {
+            void window.api.settingsSet('onboarding.done', '1');
+            setShowOnboarding(false);
+          }}
+          onAddLocal={() => {
+            void window.api.settingsSet('onboarding.done', '1');
+            setShowOnboarding(false);
+            setView({ kind: 'form', gameId: null });
+          }}
+        />
       )}
 
       <Toast message={toast?.message ?? ''} kind={toast?.kind ?? 'ok'} />

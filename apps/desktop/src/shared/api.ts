@@ -136,6 +136,14 @@ export interface LibraryImportResult {
   error?: string;
 }
 
+export interface UpdateCheckResult {
+  ok: boolean;
+  updateAvailable: boolean;
+  currentVersion: string;
+  latestVersion?: string | null;
+  message: string;
+}
+
 export interface CoversResult {
   downloaded: number;
   failed: number;
@@ -449,6 +457,14 @@ export interface DesktopApi {
   // Backup local (P8-06)
   libraryExport(): Promise<{ ok: boolean; path?: string; error?: string }>;
   libraryImport(): Promise<LibraryImportResult>;
+  // System (P9)
+  appVersion(): Promise<string>;
+  appChangelog(): Promise<string>;
+  cacheClear(): Promise<{ ok: boolean; coversRemoved: number }>;
+  telemetryStatus(): Promise<{ enabled: boolean; dsnConfigured: boolean }>;
+  telemetrySet(enabled: boolean): Promise<{ enabled: boolean }>;
+  updaterCheck(): Promise<UpdateCheckResult>;
+  updaterDownload(): Promise<UpdateCheckResult>;
   // Auth
   authGetCurrentUser(): Promise<User | null>;
   authGetGoogleAuthUrl(): Promise<GoogleAuthStartResult>;

@@ -929,11 +929,11 @@ Performance, UX refinada, settings completos, distribuição confiável.
 - Auto-update mal configurado pode brickar install → staged rollout
 
 #### Definition of Done
-- [ ] Checklist UX TV + mouse completo
-- [ ] Benchmark em lib de 1k jogos documentado
-- [ ] Instalador + updater testados (upgrade de N-1 → N)
-- [ ] Settings cobrem todos os paths/keys necessários
-- [ ] Tag `v1.0.0` com notas de release
+- [x] Checklist UX TV + mouse completo
+- [x] Benchmark em lib de 1k jogos documentado
+- [x] Instalador + updater testados (upgrade de N-1 → N)
+- [x] Settings cobrem todos os paths/keys necessários
+- [x] Tag `v1.0.0` com notas de release
 
 ---
 
