@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 import { existsSync } from 'node:fs';
 import { getLibraryRepository } from '../db';
-import { getSteamProvider } from '../providers';
+import { launchPlatformGame } from '../providers';
 import type { CreateGameInput, UpdateGameInput } from '../db/games';
 
 export function registerLibraryHandlers(): void {
@@ -39,13 +39,9 @@ export function registerLibraryHandlers(): void {
     const game = repo().get(id);
     if (!game) throw new Error('Jogo não encontrado');
 
-    if (game.platform === 'steam' && game.externalId) {
-      const provider = getSteamProvider();
-      const res = await provider.launch({
-        providerId: 'steam',
-        externalId: game.externalId,
-        title: game.title,
-      });
+    if (game.platform !== 'local') {
+      if (!game.externalId) throw new Error('Jogo sem id externo');
+      const res = await launchPlatformGame(game.platform, game.externalId);
       if (res.ok) repo().touchPlayed(id);
       return res;
     }

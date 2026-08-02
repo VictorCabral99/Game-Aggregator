@@ -3,6 +3,7 @@ import type {
   CreateGameInput,
   DesktopApi,
   LaunchRequest,
+  StoreId,
   UpdateGameInput,
 } from '../shared/api';
 
@@ -22,6 +23,8 @@ const api: DesktopApi = {
   steamStatus: () => ipcRenderer.invoke('steam:status'),
   steamScan: () => ipcRenderer.invoke('steam:scan'),
   steamSetPath: (path: string) => ipcRenderer.invoke('steam:set-path', path),
+  storeStatus: (id: StoreId) => ipcRenderer.invoke(`${id}:status`),
+  storeScan: (id: StoreId) => ipcRenderer.invoke(`${id}:scan`),
 };
 
 contextBridge.exposeInMainWorld('api', api);

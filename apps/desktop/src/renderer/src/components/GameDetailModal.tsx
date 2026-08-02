@@ -79,8 +79,11 @@ export default function GameDetailModal({
           )}
         </dl>
 
-        {game.platform === 'steam' && (
-          <p className="hint">Abre via Steam — o launcher apenas inicia o jogo pela plataforma oficial.</p>
+        {game.platform !== 'local' && (
+          <p className="hint">
+            Abre via {PLATFORM_LABELS[game.platform] ?? 'plataforma oficial'} — o launcher
+            apenas inicia o jogo pela plataforma original.
+          </p>
         )}
 
         <div className="modal__actions">

@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CreateGameInput, Game, LaunchResult, SteamStatus } from '../../shared/api';
+import type {
+  CreateGameInput,
+  Game,
+  LaunchResult,
+  SteamStatus,
+  StoreId,
+  StoreStatus,
+} from '../../shared/api';
 import GameCard from './components/GameCard';
 import GameDetailModal from './components/GameDetailModal';
 import GameFormModal from './components/GameFormModal';
@@ -19,6 +26,12 @@ const CARD_W = 200;
 const GAP = 16;
 const PADDING = 48;
 
+const STORE_LABELS: Array<{ id: StoreId; label: string }> = [
+  { id: 'epic', label: 'Epic' },
+  { id: 'gog', label: 'GOG' },
+  { id: 'amazon', label: 'Amazon' },
+];
+
 export default function App(): JSX.Element {
   const [games, setGames] = useState<Game[]>([]);
   const [view, setView] = useState<View>({ kind: 'library' });
@@ -26,6 +39,8 @@ export default function App(): JSX.Element {
   const [toast, setToast] = useState<ToastState | null>(null);
   const [steam, setSteam] = useState<SteamStatus | null>(null);
   const [steamSyncing, setSteamSyncing] = useState(false);
+  const [stores, setStores] = useState<Partial<Record<StoreId, StoreStatus | null>>>({});
+  const [storeSyncing, setStoreSyncing] = useState<Partial<Record<StoreId, boolean>>>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
@@ -46,6 +61,12 @@ export default function App(): JSX.Element {
       .steamStatus()
       .then(setSteam)
       .catch(() => setSteam({ available: false, path: null, gamesCount: 0 }));
+    for (const { id } of STORE_LABELS) {
+      void window.api
+        .storeStatus(id)
+        .then((s) => setStores((prev) => ({ ...prev, [id]: s })))
+        .catch(() => setStores((prev) => ({ ...prev, [id]: null })));
+    }
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
@@ -66,6 +87,27 @@ export default function App(): JSX.Element {
       notify(err instanceof Error ? err.message : String(err), 'error');
     } finally {
       setSteamSyncing(false);
+    }
+  };
+
+  const syncStore = async (id: StoreId) => {
+    setStoreSyncing((prev) => ({ ...prev, [id]: true }));
+    try {
+      const res = await window.api.storeScan(id);
+      setStores((prev) => {
+        const cur = prev[id];
+        return { ...prev, [id]: cur ? { ...cur, gamesCount: res.total } : cur };
+      });
+      notify(
+        res.inserted > 0
+          ? `${STORE_LABELS.find((s) => s.id === id)?.label}: ${res.inserted} jogos novos`
+          : `${STORE_LABELS.find((s) => s.id === id)?.label}: ${res.total} sincronizados`
+      );
+      await refresh();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setStoreSyncing((prev) => ({ ...prev, [id]: false }));
     }
   };
 
@@ -153,6 +195,15 @@ export default function App(): JSX.Element {
               : 'Steam não encontrado'}
           </span>
         )}
+        {STORE_LABELS.map(({ id, label }) => {
+          const s = stores[id];
+          const unavailable = !s?.available;
+          return (
+            <span key={id} className={`badge ${unavailable ? 'badge--muted' : ''}`}>
+              {unavailable ? `${label} indisponível` : `${label}: ${s.gamesCount}`}
+            </span>
+          );
+        })}
         <div className="header__actions">
           <button
             type="button"
@@ -161,6 +212,16 @@ export default function App(): JSX.Element {
           >
             {steamSyncing ? 'Sincronizando…' : 'Sync Steam'}
           </button>
+          {STORE_LABELS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              disabled={!stores[id]?.available || storeSyncing[id]}
+              onClick={() => void syncStore(id)}
+            >
+              {storeSyncing[id] ? 'Sincronizando…' : `Sync ${label}`}
+            </button>
+          ))}
           <button
             type="button"
             className="primary"

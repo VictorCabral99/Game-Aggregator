@@ -62,6 +62,21 @@ export interface SteamScanResult {
   path: string | null;
 }
 
+export type StoreId = 'epic' | 'gog' | 'amazon';
+
+export interface StoreStatus {
+  id: string;
+  displayName: string;
+  available: boolean;
+  version: string | null;
+  gamesCount: number;
+}
+
+export interface StoreScanResult {
+  total: number;
+  inserted: number;
+}
+
 export interface DesktopApi {
   launchExe(req: LaunchRequest): Promise<LaunchResult>;
   dbHealth(): Promise<DbHealth>;
@@ -77,4 +92,6 @@ export interface DesktopApi {
   steamStatus(): Promise<SteamStatus>;
   steamScan(): Promise<SteamScanResult>;
   steamSetPath(path: string): Promise<string | null>;
+  storeStatus(id: StoreId): Promise<StoreStatus>;
+  storeScan(id: StoreId): Promise<StoreScanResult>;
 }

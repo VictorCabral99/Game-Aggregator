@@ -7,7 +7,21 @@ Launcher unificado para Windows. **Não é um fork do Heroic**: reusa sidecars
 
 - **Fase 0** ✅ fundação (monorepo, shell, IPC, SQLite)
 - **Fase 1** ✅ MVP — biblioteca local de `.exe`, fullscreen, capas, instalador NSIS
-- **Fase 2** em andamento — Steam scan/launch, depois Epic/GOG/Amazon
+- **Fase 2A** ✅ Steam — scan local (`libraryfolders.vdf`/`appmanifest_*.acf`) + `steam://rungameid`
+- **Fase 2B–D** ✅ providers Epic (Legendary), GOG (gogdl) e Amazon (Nile) — dependem dos sidecars
+- **Fase 3+** em andamento — normalização, capas/metadados
+
+## Sidecars (Epic/GOG/Amazon)
+
+Baixe os CLIs oficiais para `apps/desktop/resources/bin/` (fora do git):
+
+```bash
+node tools/scripts/fetch-sidecars.mjs        # baixa última release de cada
+node tools/scripts/smoke-sidecars.mjs        # confere presença/versão
+```
+
+Depois autentique cada um no terminal: `legendary auth`, `gogdl auth`, `nile auth`.
+Sem os binários, o app mostra a loja como “indisponível” sem quebrar.
 
 ## Rodar (dev)
 
