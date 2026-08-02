@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Game, LaunchResult } from '../../../shared/api';
-import { coverSrc } from './GameCard';
+import { coverSrc, PLATFORM_LABELS } from './GameCard';
 
 interface Props {
   game: Game;
@@ -56,9 +56,15 @@ export default function GameDetailModal({
 
         <dl className="modal__meta">
           <div>
-            <dt>Executável</dt>
-            <dd className="mono">{game.executable}</dd>
+            <dt>Plataforma</dt>
+            <dd>{PLATFORM_LABELS[game.platform] ?? 'Local'}</dd>
           </div>
+          {game.executable && (
+            <div>
+              <dt>Executável</dt>
+              <dd className="mono">{game.executable}</dd>
+            </div>
+          )}
           {game.cwd && (
             <div>
               <dt>Diretório de trabalho</dt>
@@ -72,6 +78,10 @@ export default function GameDetailModal({
             </div>
           )}
         </dl>
+
+        {game.platform === 'steam' && (
+          <p className="hint">Abre via Steam — o launcher apenas inicia o jogo pela plataforma oficial.</p>
+        )}
 
         <div className="modal__actions">
           <button type="button" className="primary" disabled={launching} onClick={() => void launch()}>

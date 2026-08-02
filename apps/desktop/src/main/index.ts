@@ -5,6 +5,7 @@ import { registerLaunchHandlers } from './ipc/launch';
 import { initDatabase, registerDbHandlers } from './db';
 import { registerLibraryHandlers } from './ipc/library';
 import { registerCoverHandlers } from './ipc/cover';
+import { registerSteamHandlers } from './ipc/steam';
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'cover', privileges: { secure: true, supportFetchAPI: true, stream: true } },
@@ -51,6 +52,7 @@ app.whenReady().then(() => {
   registerDbHandlers();
   registerLibraryHandlers();
   registerCoverHandlers();
+  registerSteamHandlers();
 
   createWindow();
 

@@ -25,6 +25,22 @@ export function getLibraryRepository(): LibraryRepository {
   return new LibraryRepository(initDatabase());
 }
 
+export function getSetting(key: string): string | null {
+  const row = initDatabase()
+    .prepare(`SELECT value FROM app_settings WHERE key = ?`)
+    .get(key) as { value?: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string): void {
+  initDatabase()
+    .prepare(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+    )
+    .run(key, value);
+}
+
 export function registerDbHandlers(): void {
   ipcMain.handle('db:health', (): DbHealth => {
     try {

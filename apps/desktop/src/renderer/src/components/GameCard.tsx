@@ -15,6 +15,7 @@ interface Props {
 
 export default function GameCard({ game, selected, onSelect, onOpen }: Props): JSX.Element {
   const src = coverSrc(game);
+  const platformLabel = game.platform === 'local' ? null : PLATFORM_LABELS[game.platform] ?? null;
   return (
     <button
       type="button"
@@ -29,12 +30,21 @@ export default function GameCard({ game, selected, onSelect, onOpen }: Props): J
         ) : (
           <div className="card__placeholder">{game.title.slice(0, 1).toUpperCase()}</div>
         )}
+        {platformLabel && <span className="card__badge">{platformLabel}</span>}
       </div>
       <div className="card__title">{game.title}</div>
       {game.lastPlayedAt && <div className="card__meta">Jogado {dateLabel(game.lastPlayedAt)}</div>}
     </button>
   );
 }
+
+export const PLATFORM_LABELS: Record<string, string> = {
+  steam: 'Steam',
+  epic: 'Epic',
+  gog: 'GOG',
+  amazon: 'Amazon',
+  emulator: 'Retro',
+};
 
 function dateLabel(iso: string): string {
   const d = new Date(iso);

@@ -19,6 +19,9 @@ const api: DesktopApi = {
   pickExe: () => ipcRenderer.invoke('pick-exe'),
   pickCover: () => ipcRenderer.invoke('pick-cover'),
   coverFromUrl: (url: string) => ipcRenderer.invoke('cover-from-url', url),
+  steamStatus: () => ipcRenderer.invoke('steam:status'),
+  steamScan: () => ipcRenderer.invoke('steam:scan'),
+  steamSetPath: (path: string) => ipcRenderer.invoke('steam:set-path', path),
 };
 
 contextBridge.exposeInMainWorld('api', api);

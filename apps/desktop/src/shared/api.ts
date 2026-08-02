@@ -27,11 +27,13 @@ export interface DbHealth {
 export interface Game {
   id: string;
   title: string;
-  executable: string;
+  executable: string | null;
   cwd: string | null;
   coverPath: string | null;
   coverUrl: string | null;
   notes: string | null;
+  platform: 'local' | 'steam' | 'epic' | 'gog' | 'amazon' | 'emulator' | 'manual';
+  externalId: string | null;
   createdAt: string;
   updatedAt: string;
   lastPlayedAt: string | null;
@@ -48,6 +50,18 @@ export interface CreateGameInput {
 
 export type UpdateGameInput = Partial<CreateGameInput>;
 
+export interface SteamStatus {
+  available: boolean;
+  path: string | null;
+  gamesCount: number;
+}
+
+export interface SteamScanResult {
+  total: number;
+  inserted: number;
+  path: string | null;
+}
+
 export interface DesktopApi {
   launchExe(req: LaunchRequest): Promise<LaunchResult>;
   dbHealth(): Promise<DbHealth>;
@@ -60,4 +74,7 @@ export interface DesktopApi {
   pickExe(): Promise<string | null>;
   pickCover(): Promise<string | null>;
   coverFromUrl(url: string): Promise<string>;
+  steamStatus(): Promise<SteamStatus>;
+  steamScan(): Promise<SteamScanResult>;
+  steamSetPath(path: string): Promise<string | null>;
 }

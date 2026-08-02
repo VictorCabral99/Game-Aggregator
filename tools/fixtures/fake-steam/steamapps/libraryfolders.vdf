@@ -1,0 +1,23 @@
+"libraryfolders"
+{
+	"ContentStatsID"		"-2176707962745905687"
+	"0"
+	{
+		"path"		"tools/fixtures/fake-steam"
+		"label"		""
+		"apps"
+		{
+			"730"		"2564936742"
+			"8930"		"1"
+		}
+	}
+	"1"
+	{
+		"path"		"tools/fixtures/secondary-library"
+		"label"		"Jogos 2"
+		"apps"
+		{
+			"570"		"42"
+		}
+	}
+}

@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { existsSync } from 'node:fs';
 import { getLibraryRepository } from '../db';
+import { getSteamProvider } from '../providers';
 import type { CreateGameInput, UpdateGameInput } from '../db/games';
 
 export function registerLibraryHandlers(): void {
@@ -38,9 +39,22 @@ export function registerLibraryHandlers(): void {
     const game = repo().get(id);
     if (!game) throw new Error('Jogo não encontrado');
 
+    if (game.platform === 'steam' && game.externalId) {
+      const provider = getSteamProvider();
+      const res = await provider.launch({
+        providerId: 'steam',
+        externalId: game.externalId,
+        title: game.title,
+      });
+      if (res.ok) repo().touchPlayed(id);
+      return res;
+    }
+
+    if (!game.executable) throw new Error('Este jogo não tem executável local');
+
     const { spawn } = await import('node:child_process');
     return new Promise((resolve) => {
-      const child = spawn(game.executable, [], {
+      const child = spawn(game.executable as string, [], {
         cwd: game.cwd || undefined,
         detached: true,
         stdio: 'ignore',

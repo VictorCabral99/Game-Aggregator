@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CreateGameInput, Game, LaunchResult } from '../../shared/api';
+import type { CreateGameInput, Game, LaunchResult, SteamStatus } from '../../shared/api';
 import GameCard from './components/GameCard';
 import GameDetailModal from './components/GameDetailModal';
 import GameFormModal from './components/GameFormModal';
@@ -24,6 +24,8 @@ export default function App(): JSX.Element {
   const [view, setView] = useState<View>({ kind: 'library' });
   const [selected, setSelected] = useState(0);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [steam, setSteam] = useState<SteamStatus | null>(null);
+  const [steamSyncing, setSteamSyncing] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
@@ -40,10 +42,32 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     void refresh().catch((err) => notify(String(err), 'error'));
+    void window.api
+      .steamStatus()
+      .then(setSteam)
+      .catch(() => setSteam({ available: false, path: null, gamesCount: 0 }));
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, [refresh, notify]);
+
+  const syncSteam = async () => {
+    setSteamSyncing(true);
+    try {
+      const res = await window.api.steamScan();
+      setSteam((s) => (s ? { ...s, gamesCount: res.total } : s));
+      notify(
+        res.inserted > 0
+          ? `Steam: ${res.inserted} jogos novos (${res.total} no total)`
+          : `Steam: ${res.total} jogos sincronizados`
+      );
+      await refresh();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setSteamSyncing(false);
+    }
+  };
 
   const cols = Math.max(1, Math.floor((window.innerWidth - PADDING * 2) / (CARD_W + GAP)));
 
@@ -122,9 +146,29 @@ export default function App(): JSX.Element {
       <header className="shell__header">
         <h1>Game Aggregator Launcher</h1>
         <span className="badge">{games.length} jogos</span>
-        <button type="button" className="primary" onClick={() => setView({ kind: 'form', gameId: null })}>
-          + Adicionar jogo (Ctrl+N)
-        </button>
+        {steam && (
+          <span className={`badge badge--steam ${steam.available ? '' : 'badge--muted'}`}>
+            {steam.available
+              ? `Steam: ${steam.gamesCount} detectados`
+              : 'Steam não encontrado'}
+          </span>
+        )}
+        <div className="header__actions">
+          <button
+            type="button"
+            disabled={!steam?.available || steamSyncing}
+            onClick={() => void syncSteam()}
+          >
+            {steamSyncing ? 'Sincronizando…' : 'Sync Steam'}
+          </button>
+          <button
+            type="button"
+            className="primary"
+            onClick={() => setView({ kind: 'form', gameId: null })}
+          >
+            + Adicionar jogo (Ctrl+N)
+          </button>
+        </div>
       </header>
 
       {games.length === 0 ? (
