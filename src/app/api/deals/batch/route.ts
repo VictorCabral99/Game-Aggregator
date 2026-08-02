@@ -95,8 +95,13 @@ export async function POST(request: NextRequest) {
 
     let updated = 0;
     let completed = 0;
+    let authError: string | null = null;
 
     await mapPool(eligible, CONCURRENCY, async (item) => {
+      if (authError) {
+        completed += 1;
+        return;
+      }
       try {
         const gameData =
           typeof item.gameData === 'string'
@@ -232,9 +237,18 @@ export async function POST(request: NextRequest) {
         await sleep(LOOKUP_DELAY_MS);
       } catch (error) {
         completed += 1;
+        const msg = error instanceof Error ? error.message : 'ITAD lookup error';
         console.error('ITAD lookup error:', error);
+        if (msg.includes('ITAD_API_KEY') || msg.includes('ITAD ')) {
+          authError = msg;
+          send({ type: 'error', error: msg });
+        }
       }
     });
+
+    if (authError) {
+      send({ type: 'error', error: authError });
+    }
 
     await prisma.user.update({
       where: { id: auth.userId },
@@ -248,6 +262,7 @@ export async function POST(request: NextRequest) {
       remaining: 0,
       totalEligible: eligible.length,
       total: items.length,
+      error: authError,
     });
   });
 }

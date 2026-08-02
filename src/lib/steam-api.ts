@@ -104,7 +104,11 @@ export class SteamAPI {
     return null;
   }
 
-  async getWishlist(steamId: string): Promise<SteamWishlistGame[]> {
+  async getWishlist(steamId: string): Promise<{
+    games: SteamWishlistGame[];
+    error?: string;
+    warning?: string;
+  }> {
     try {
       // Old store wishlistdata endpoint is dead; use IWishlistService
       const response = await axios.get(
@@ -120,12 +124,22 @@ export class SteamAPI {
 
       if (response.status >= 400) {
         console.error('Steam GetWishlist HTTP', response.status);
-        return [];
+        return {
+          games: [],
+          error:
+            response.status === 401 || response.status === 403
+              ? 'Steam wishlist: API key inválida ou sem permissão'
+              : `Steam wishlist: erro HTTP ${response.status}`,
+        };
       }
 
       const items = response.data?.response?.items || [];
       if (!Array.isArray(items) || items.length === 0) {
-        return [];
+        return {
+          games: [],
+          warning:
+            'Steam wishlist vazia ou privada — em Privacidade do perfil, wishlist deve ser pública',
+        };
       }
 
       const base: SteamWishlistGame[] = items.map(
@@ -168,10 +182,10 @@ export class SteamAPI {
         }
       }
 
-      return Array.from(byId.values());
+      return { games: Array.from(byId.values()) };
     } catch (error) {
       console.error('Steam wishlist fetch error:', error);
-      return [];
+      return { games: [], error: 'Steam wishlist: falha de rede' };
     }
   }
 

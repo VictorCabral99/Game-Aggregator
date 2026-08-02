@@ -83,11 +83,30 @@ export class ITADAPI {
     };
   }
 
+  private assertOk(response: { status: number; data?: unknown }, context: string) {
+    if (response.status === 401 || response.status === 403) {
+      throw new Error(
+        'ITAD_API_KEY inválida ou expirada — gere outra em https://isthereanydeal.com/apps/'
+      );
+    }
+    if (response.status >= 400) {
+      const reason =
+        response.data &&
+        typeof response.data === 'object' &&
+        'reason_phrase' in response.data
+          ? String((response.data as { reason_phrase?: string }).reason_phrase)
+          : `HTTP ${response.status}`;
+      throw new Error(`ITAD ${context}: ${reason}`);
+    }
+  }
+
   async lookupByAppId(appid: number): Promise<ITADGame | null> {
     const response = await axios.get(`${ITAD_API_BASE}/games/lookup/v1`, {
       headers: this.headers,
       params: { appid },
+      validateStatus: () => true,
     });
+    this.assertOk(response, 'lookup appid');
 
     if (!response.data?.found || !response.data?.game) {
       return null;
@@ -100,7 +119,9 @@ export class ITADAPI {
     const response = await axios.get(`${ITAD_API_BASE}/games/lookup/v1`, {
       headers: this.headers,
       params: { title },
+      validateStatus: () => true,
     });
+    this.assertOk(response, 'lookup title');
 
     if (!response.data?.found || !response.data?.game) {
       return null;
@@ -113,7 +134,9 @@ export class ITADAPI {
     const response = await axios.get(`${ITAD_API_BASE}/games/search/v1`, {
       headers: this.headers,
       params: { title, results },
+      validateStatus: () => true,
     });
+    this.assertOk(response, 'search');
 
     return (response.data || []) as ITADGame[];
   }
@@ -129,8 +152,10 @@ export class ITADAPI {
       {
         headers: this.headers,
         params: { country: this.country },
+        validateStatus: () => true,
       }
     );
+    this.assertOk(response, 'overview');
 
     return response.data as ITADOverviewResponse;
   }

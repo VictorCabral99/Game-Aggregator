@@ -80,14 +80,21 @@ export async function POST(request: NextRequest) {
   if (stage === 'all' || stage === 'library') {
     const library = await callInternal(origin, '/api/library', cookie);
     results.library = library.data;
+  }
 
+  if (stage === 'all' || stage === 'wishlist') {
     const wishlist = await callInternal(origin, '/api/wishlist', cookie);
     results.wishlist = wishlist.data;
   }
 
   const now = new Date();
   // Notas e preços ficam nos botões dedicados; sync de lojas só marca daily
-  if (stage === 'all' || stage === 'enrich' || stage === 'library') {
+  if (
+    stage === 'all' ||
+    stage === 'enrich' ||
+    stage === 'library' ||
+    stage === 'wishlist'
+  ) {
     await prisma.user.update({
       where: { id: auth.userId },
       data: { lastDailySyncAt: now },

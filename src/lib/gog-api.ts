@@ -95,27 +95,32 @@ export class GogAPI {
   }
 
   async getWishlist(): Promise<GogGame[]> {
-    try {
-      const response = await axios.get(`${GOG_EMBED_BASE}/user/wishlist.json`, {
-        headers: this.headers,
-      });
+    const response = await axios.get(`${GOG_EMBED_BASE}/user/wishlist.json`, {
+      headers: this.headers,
+      validateStatus: () => true,
+    });
 
-      const wishlist = response.data?.wishlist || response.data || {};
-      const games: GogGame[] = [];
+    if (response.status === 401 || response.status === 403) {
+      throw new Error('GOG wishlist: token inválido ou expirado');
+    }
+    if (response.status >= 400) {
+      throw new Error(`GOG wishlist: erro HTTP ${response.status}`);
+    }
 
-      if (Array.isArray(wishlist)) {
-        for (const item of wishlist) {
-          games.push({
-            id: item.id || item.productId,
-            title: item.title || item.name || `GOG ${item.id}`,
-            slug: item.slug,
-            image: item.image,
-            url: item.url,
-          });
-        }
-        return games;
+    const wishlist = response.data?.wishlist || response.data || {};
+    const games: GogGame[] = [];
+
+    if (Array.isArray(wishlist)) {
+      for (const item of wishlist) {
+        games.push({
+          id: Number(item.id || item.productId),
+          title: item.title || item.name || `GOG ${item.id}`,
+          slug: item.slug,
+          image: item.image,
+          url: item.url,
+        });
       }
-
+    } else {
       for (const [id, item] of Object.entries(wishlist as Record<string, any>)) {
         if (item === true || item === 1) {
           games.push({
@@ -124,7 +129,7 @@ export class GogAPI {
           });
         } else if (item && typeof item === 'object') {
           games.push({
-            id: Number(id) || item.id,
+            id: Number(id) || Number(item.id),
             title: item.title || item.name || `GOG ${id}`,
             slug: item.slug,
             image: item.image,
@@ -132,11 +137,43 @@ export class GogAPI {
           });
         }
       }
-
-      return games;
-    } catch (error) {
-      console.error('GOG wishlist fetch error:', error);
-      return [];
     }
+
+    // Enrich placeholder titles via public products API
+    const needEnrich = games.filter(
+      (g) => !g.title || /^GOG \d+$/i.test(g.title)
+    );
+    for (let i = 0; i < needEnrich.length; i += 6) {
+      const chunk = needEnrich.slice(i, i + 6);
+      await Promise.all(
+        chunk.map(async (game) => {
+          try {
+            const detail = await axios.get(
+              `https://api.gog.com/products/${game.id}`,
+              {
+                timeout: 10000,
+                validateStatus: () => true,
+                headers: { Accept: 'application/json' },
+              }
+            );
+            if (detail.status === 200 && detail.data?.title) {
+              game.title = detail.data.title;
+              if (detail.data.slug) game.slug = detail.data.slug;
+              if (detail.data.image) game.image = detail.data.image;
+              if (!game.url && detail.data.slug) {
+                game.url = `https://www.gog.com/game/${detail.data.slug}`;
+              }
+            }
+          } catch {
+            // keep placeholder
+          }
+        })
+      );
+      if (i + 6 < needEnrich.length) {
+        await new Promise((r) => setTimeout(r, 120));
+      }
+    }
+
+    return games;
   }
 }

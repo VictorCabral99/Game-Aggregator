@@ -333,6 +333,7 @@ export default function Dashboard() {
   const [games, setGames] = useState<LibraryGame[]>([]);
   const [wishlist, setWishlist] = useState<WishlistGame[]>([]);
   const [syncing, setSyncing] = useState(false);
+  const [syncingWishlist, setSyncingWishlist] = useState(false);
   const [fetchingRatings, setFetchingRatings] = useState(false);
   const [fetchingDeals, setFetchingDeals] = useState(false);
   const [progress, setProgress] = useState<{
@@ -522,19 +523,22 @@ export default function Dashboard() {
     }
   }, [games.length, loadData]);
 
-  const busy = syncing || fetchingRatings || fetchingDeals;
+  const busy = syncing || syncingWishlist || fetchingRatings || fetchingDeals;
 
-  const runDealsFetch = useCallback(async () => {
-    if (wishlist.length === 0) {
-      setMessage('Wishlist vazia — busque jogos nas lojas primeiro');
+  const runDealsFetch = useCallback(async (opts?: { ignoreLocalEmpty?: boolean; force?: boolean }) => {
+    if (wishlist.length === 0 && !opts?.ignoreLocalEmpty) {
+      setMessage('Wishlist vazia — use Buscar wishlist primeiro');
       return;
     }
+
+    const force = opts?.force ?? true;
 
     setFetchingDeals(true);
     setMessage('Buscando preços no IsThereAnyDeal...');
     let feed: string[] = [];
     let totalEligible = 0;
     let updated = 0;
+    let scanned = 0;
     let itemsSinceReload = 0;
 
     setProgress({
@@ -550,7 +554,7 @@ export default function Dashboard() {
       const response = await fetch('/api/deals/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: false }),
+        body: JSON.stringify({ force }),
       });
 
       if (!response.ok) {
@@ -580,6 +584,13 @@ export default function Dashboard() {
             tone: 'amber',
             feed,
           });
+          if (totalEligible === 0) {
+            setMessage(
+              force
+                ? 'Wishlist sem itens para precificar'
+                : 'Nenhum preço pendente (já atualizados nesta semana)'
+            );
+          }
           return;
         }
 
@@ -625,7 +636,7 @@ export default function Dashboard() {
             ])
           );
 
-          updated += 1;
+          scanned += 1;
           itemsSinceReload += 1;
           setProgress({
             label: `Preços: ${current} de ${total || '?'} itens`,
@@ -644,21 +655,28 @@ export default function Dashboard() {
         }
 
         if (type === 'done') {
-          updated = Number(event.updated) || updated;
+          updated = Number(event.updated) || 0;
+          scanned = Number(event.scanned) || scanned;
           totalEligible = Number(event.totalEligible) || totalEligible;
           setProgress({
             label: `Preços concluídos (${updated} atualizados)`,
-            current: totalEligible || updated,
-            total: totalEligible || updated,
+            current: totalEligible || scanned || updated,
+            total: totalEligible || scanned || updated,
             percent: 100,
             tone: 'amber',
             feed,
           });
-          setMessage(
-            updated > 0
-              ? `Preços atualizados em ${updated} itens`
-              : 'Nenhum preço pendente (já atualizados nesta semana)'
-          );
+          if (totalEligible === 0 && !force) {
+            setMessage('Nenhum preço pendente (já atualizados nesta semana)');
+          } else if (updated > 0) {
+            setMessage(`Preços atualizados em ${updated} itens`);
+          } else if (scanned > 0) {
+            setMessage(
+              `Consulta concluída em ${scanned} itens — nenhum preço encontrado no ITAD`
+            );
+          } else {
+            setMessage('Nenhum item para buscar preços');
+          }
         }
       });
 
@@ -672,7 +690,10 @@ export default function Dashboard() {
   }, [wishlist.length, loadData]);
 
   const runDailySync = useCallback(
-    async (force = false) => {
+    async (opts: { force?: boolean; stage?: 'library' | 'wishlist' | 'all' } = {}) => {
+      const force = opts.force ?? false;
+      const stage = opts.stage ?? (force ? 'library' : 'all');
+
       setSyncing(true);
       setMessage(null);
       try {
@@ -685,19 +706,26 @@ export default function Dashboard() {
           }
         }
 
+        const label =
+          stage === 'wishlist'
+            ? 'Buscando wishlists nas lojas...'
+            : stage === 'library'
+              ? 'Buscando biblioteca nas lojas...'
+              : 'Buscando biblioteca e wishlists...';
+
         setProgress({
-          label: 'Buscando jogos e wishlists nas lojas...',
+          label,
           current: 1,
           total: 1,
           percent: 15,
           tone: 'emerald',
         });
-        setMessage('Buscando jogos e wishlists nas lojas...');
+        setMessage(label);
 
         const response = await fetch('/api/sync/daily', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ force: true, stage: 'library' }),
+          body: JSON.stringify({ force: true, stage }),
         });
         const data = await response.json();
         await loadData();
@@ -722,18 +750,30 @@ export default function Dashboard() {
         });
 
         if (libErrors.length > 0) {
-          setMessage(`Sync concluído com avisos: ${libErrors.join(' | ')}`);
+          setMessage(`Sync com avisos: ${libErrors.join(' | ')}`);
+        } else if (stage === 'library') {
+          setMessage(
+            `Biblioteca sincronizada${
+              typeof gameCount === 'number' ? ` · ${gameCount} jogos` : ''
+            } — use Buscar notas`
+          );
+        } else if (stage === 'wishlist') {
+          setMessage(
+            `Wishlist sincronizada${
+              typeof wishCount === 'number' ? ` · ${wishCount} itens` : ''
+            } — use Buscar preços`
+          );
         } else {
           setMessage(
             `Lojas sincronizadas${
               typeof gameCount === 'number' ? ` · ${gameCount} jogos` : ''
             }${
               typeof wishCount === 'number' ? ` · ${wishCount} wishlist` : ''
-            } — use Buscar notas / Buscar preços`
+            }`
           );
         }
       } catch {
-        setMessage('Erro ao sincronizar — tente Buscar jogos nas lojas de novo');
+        setMessage('Erro ao sincronizar');
         await loadData();
       } finally {
         setSyncing(false);
@@ -743,13 +783,65 @@ export default function Dashboard() {
     [loadData]
   );
 
+  const runWishlistSync = useCallback(async () => {
+    setSyncingWishlist(true);
+    setMessage(null);
+    setProgress({
+      label: 'Buscando wishlists nas lojas...',
+      current: 1,
+      total: 1,
+      percent: 20,
+      tone: 'emerald',
+    });
+    setMessage('Buscando wishlists nas lojas...');
+
+    let startDeals = false;
+
+    try {
+      const response = await fetch('/api/wishlist', { method: 'POST' });
+      const data = await response.json();
+      await loadData();
+
+      const wishErrors = [...(data.errors || [])].filter(Boolean);
+      const wishCount = Number(data.itemCount) || 0;
+
+      setProgress({
+        label: 'Wishlist sincronizada',
+        current: 1,
+        total: 1,
+        percent: 100,
+        tone: 'emerald',
+      });
+
+      if (wishErrors.length > 0) {
+        setMessage(`Wishlist · ${wishCount} itens: ${wishErrors.join(' | ')}`);
+      } else {
+        setMessage(`Wishlist sincronizada · ${wishCount} itens`);
+      }
+
+      startDeals = wishCount > 0;
+    } catch {
+      setMessage('Erro ao sincronizar wishlist');
+      await loadData();
+    } finally {
+      setSyncingWishlist(false);
+      if (!startDeals) {
+        setTimeout(() => setProgress(null), 1200);
+      }
+    }
+
+    if (startDeals) {
+      await runDealsFetch({ ignoreLocalEmpty: true, force: true });
+    }
+  }, [loadData, runDealsFetch]);
+
   useEffect(() => {
     const linked = searchParams.get('linked');
     const error = searchParams.get('error');
     if (linked) {
       setMessage(`${linked.toUpperCase()} conectada`);
       router.replace('/dashboard');
-      runDailySync(true);
+      runDailySync({ force: true, stage: 'all' });
     } else if (error) {
       setMessage(error);
       router.replace('/dashboard');
@@ -761,7 +853,7 @@ export default function Dashboard() {
     (async () => {
       const syncData = await loadData();
       if (syncData.needsSync) {
-        await runDailySync(false);
+        await runDailySync({ force: false, stage: 'all' });
       }
     })();
   }, [session, loadData, runDailySync]);
@@ -947,11 +1039,18 @@ export default function Dashboard() {
           </div>
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => runDailySync(true)}
+              onClick={() => runDailySync({ force: true, stage: 'library' })}
               disabled={busy}
               className="bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-600 text-white font-bold py-2 px-4 rounded"
             >
-              {syncing ? 'Buscando nas lojas...' : 'Buscar jogos nas lojas'}
+              {syncing ? 'Buscando biblioteca...' : 'Buscar jogos'}
+            </button>
+            <button
+              onClick={() => runWishlistSync()}
+              disabled={busy}
+              className="bg-teal-700 hover:bg-teal-600 disabled:bg-gray-600 text-white font-bold py-2 px-4 rounded"
+            >
+              {syncingWishlist ? 'Buscando wishlist...' : 'Buscar wishlist'}
             </button>
             <button
               onClick={() => runRatingsFetch()}
@@ -1157,7 +1256,7 @@ export default function Dashboard() {
 
             {games.length === 0 ? (
               <p className="text-gray-400">
-                Conecte uma loja e clique em Buscar jogos nas lojas.
+                Conecte uma loja e clique em Buscar jogos.
               </p>
             ) : visibleGames.length === 0 ? (
               <p className="text-gray-400">Nenhuma loja visível — ative pelo menos uma acima.</p>
@@ -1224,7 +1323,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                   <p className="text-sm text-gray-400">
-                    Wishlist — Steam (pública) + ITAD. Epic/Amazon ainda sem API de wishlist.
+                    Wishlist — Steam (pública) + GOG + ITAD. Epic/Amazon ainda sem API.
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
                     Mostrando {visibleWishlist.length} de {wishlist.length}
@@ -1280,7 +1379,7 @@ export default function Dashboard() {
             </div>
             {wishlist.length === 0 ? (
               <p className="text-gray-400">
-                Nenhum item ainda. Torne a wishlist Steam pública e use Buscar jogos nas lojas.
+                Nenhum item ainda. Torne a wishlist Steam pública e use Buscar wishlist.
               </p>
             ) : visibleWishlist.length === 0 ? (
               <p className="text-gray-400">Nenhuma loja visível — ative pelo menos uma acima.</p>
@@ -1308,34 +1407,55 @@ export default function Dashboard() {
                       </div>
                       <p className="text-xs text-gray-400 mb-3">{storeLabel(item.platform)}</p>
                       {deal && deal.currentPrice !== null ? (
-                        <div className="space-y-1">
-                          <p className="text-lg font-semibold text-green-400 tabular-nums">
-                            {formatPrice(deal.currentPrice, deal.currency)}
-                          </p>
-                          {deal.regularPrice !== null &&
-                            deal.regularPrice > (deal.currentPrice || 0) && (
-                              <p className="text-xs text-gray-500 line-through tabular-nums">
-                                {formatPrice(deal.regularPrice, deal.currency)}
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-0.5">
+                                Atual
                               </p>
-                            )}
-                          {deal.shopName && (
-                            <p className="text-xs text-gray-400">{deal.shopName}</p>
-                          )}
-                          {deal.historicalLow !== null && (
-                            <p className="text-xs text-gray-500">
-                              Mín. histórico:{' '}
-                              {formatPrice(deal.historicalLow, deal.currency)}
-                              {deal.historicalLowShop
-                                ? ` · ${deal.historicalLowShop}`
-                                : ''}
-                            </p>
-                          )}
+                              <p className="text-lg font-semibold text-green-400 tabular-nums leading-tight">
+                                {formatPrice(deal.currentPrice, deal.currency)}
+                              </p>
+                              {deal.regularPrice !== null &&
+                                deal.regularPrice > (deal.currentPrice || 0) && (
+                                  <p className="text-xs text-gray-500 line-through tabular-nums">
+                                    {formatPrice(deal.regularPrice, deal.currency)}
+                                  </p>
+                                )}
+                              {deal.shopName && (
+                                <p className="text-xs text-gray-400 mt-0.5 truncate">
+                                  {deal.shopName}
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-0.5">
+                                Mín. histórico
+                              </p>
+                              {deal.historicalLow !== null ? (
+                                <>
+                                  <p className="text-lg font-semibold text-sky-300 tabular-nums leading-tight">
+                                    {formatPrice(deal.historicalLow, deal.currency)}
+                                  </p>
+                                  {deal.historicalLowShop && (
+                                    <p className="text-xs text-gray-400 mt-0.5 truncate">
+                                      {deal.historicalLowShop}
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                <p className="text-lg font-semibold text-gray-500 tabular-nums leading-tight">
+                                  —
+                                </p>
+                              )}
+                            </div>
+                          </div>
                           {deal.url && (
                             <a
                               href={deal.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="text-xs text-blue-400 hover:underline inline-block mt-1"
+                              className="text-xs text-blue-400 hover:underline inline-block"
                             >
                               Ver no ITAD
                             </a>

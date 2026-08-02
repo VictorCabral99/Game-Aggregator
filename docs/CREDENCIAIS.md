@@ -85,6 +85,8 @@ Preços da wishlist (botão **Buscar preços**).
 2. Copie a API key → `ITAD_API_KEY`
 3. País: `ITAD_COUNTRY="BR"` (ou outro código ISO)
 
+Se **Buscar preços** falhar com “ITAD_API_KEY inválida ou expirada”, gere uma key nova e reinicie o `npm run dev`.
+
 ---
 
 ## Lojas (login no app)

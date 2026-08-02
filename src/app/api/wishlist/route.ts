@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server';
 import { requireUserId } from '@/lib/auth-helpers';
 import { SteamAPI } from '@/lib/steam-api';
 import { GogAPI } from '@/lib/gog-api';
-import { EpicAPI } from '@/lib/epic-api';
-import { AmazonAPI } from '@/lib/amazon-api';
 import { prisma } from '@/lib/prisma';
 
 async function ensureGogToken(account: {
@@ -33,6 +31,22 @@ async function ensureGogToken(account: {
   }
   if (!token) throw new Error('GOG access token missing');
   return token;
+}
+
+async function pruneWishlist(
+  userId: string,
+  platform: string,
+  keepExternalIds: string[]
+) {
+  await prisma.wishlistItem.deleteMany({
+    where: {
+      userId,
+      platform,
+      ...(keepExternalIds.length > 0
+        ? { externalId: { notIn: keepExternalIds } }
+        : {}),
+    },
+  });
 }
 
 export async function GET() {
@@ -67,14 +81,26 @@ export async function POST() {
           continue;
         }
         const steam = new SteamAPI(process.env.STEAM_API_KEY);
-        const wishlist = await steam.getWishlist(account.externalUserId);
-        for (const game of wishlist) {
+        const result = await steam.getWishlist(account.externalUserId);
+
+        if (result.error) {
+          errors.push(result.error);
+          continue;
+        }
+        if (result.warning) {
+          errors.push(result.warning);
+        }
+
+        const ids: string[] = [];
+        for (const game of result.games) {
+          const externalId = String(game.appid);
+          ids.push(externalId);
           await prisma.wishlistItem.upsert({
             where: {
               userId_platform_externalId: {
                 userId: auth.userId,
                 platform: 'steam',
-                externalId: String(game.appid),
+                externalId,
               },
             },
             update: {
@@ -84,11 +110,16 @@ export async function POST() {
             create: {
               userId: auth.userId,
               platform: 'steam',
-              externalId: String(game.appid),
+              externalId,
               gameData: JSON.stringify(game),
             },
           });
           total += 1;
+        }
+
+        // Não prune se veio vazia (pode ser wishlist privada)
+        if (result.games.length > 0 || !result.warning) {
+          await pruneWishlist(auth.userId, 'steam', ids);
         }
         await prisma.platformAccount.update({
           where: { id: account.id },
@@ -100,100 +131,46 @@ export async function POST() {
         const token = await ensureGogToken(account);
         const gog = new GogAPI(token);
         const wishlist = await gog.getWishlist();
+        const ids: string[] = [];
+
         for (const game of wishlist) {
+          const externalId = String(game.id);
+          ids.push(externalId);
           await prisma.wishlistItem.upsert({
             where: {
               userId_platform_externalId: {
                 userId: auth.userId,
                 platform: 'gog',
-                externalId: String(game.id),
+                externalId,
               },
             },
             update: {
-              gameData: JSON.stringify(game),
+              gameData: JSON.stringify({ name: game.title, ...game }),
               syncedAt: new Date(),
             },
             create: {
               userId: auth.userId,
               platform: 'gog',
-              externalId: String(game.id),
-              gameData: JSON.stringify(game),
+              externalId,
+              gameData: JSON.stringify({ name: game.title, ...game }),
             },
           });
           total += 1;
         }
+
+        await pruneWishlist(auth.userId, 'gog', ids);
         await prisma.platformAccount.update({
           where: { id: account.id },
           data: { lastWishlistSyncAt: new Date() },
         });
       }
 
-      if (account.platform === 'epic') {
-        if (!account.accessToken) continue;
-        const epic = new EpicAPI(account.accessToken);
-        const wishlist = await epic.getWishlist();
-        for (const game of wishlist) {
-          await prisma.wishlistItem.upsert({
-            where: {
-              userId_platform_externalId: {
-                userId: auth.userId,
-                platform: 'epic',
-                externalId: game.id,
-              },
-            },
-            update: {
-              gameData: JSON.stringify({ name: game.title, ...game }),
-              syncedAt: new Date(),
-            },
-            create: {
-              userId: auth.userId,
-              platform: 'epic',
-              externalId: game.id,
-              gameData: JSON.stringify({ name: game.title, ...game }),
-            },
-          });
-          total += 1;
-        }
-        await prisma.platformAccount.update({
-          where: { id: account.id },
-          data: { lastWishlistSyncAt: new Date() },
-        });
-      }
-
-      if (account.platform === 'amazon') {
-        if (!account.accessToken) continue;
-        const amazon = new AmazonAPI(account.accessToken);
-        const wishlist = await amazon.getWishlist();
-        for (const game of wishlist) {
-          await prisma.wishlistItem.upsert({
-            where: {
-              userId_platform_externalId: {
-                userId: auth.userId,
-                platform: 'amazon',
-                externalId: game.id,
-              },
-            },
-            update: {
-              gameData: JSON.stringify({ name: game.title, ...game }),
-              syncedAt: new Date(),
-            },
-            create: {
-              userId: auth.userId,
-              platform: 'amazon',
-              externalId: game.id,
-              gameData: JSON.stringify({ name: game.title, ...game }),
-            },
-          });
-          total += 1;
-        }
-        await prisma.platformAccount.update({
-          where: { id: account.id },
-          data: { lastWishlistSyncAt: new Date() },
-        });
-      }
+      // Epic / Amazon wishlist ainda sem API — não sincroniza nem apaga itens
     } catch (error) {
       console.error(`Wishlist sync error (${account.platform}):`, error);
-      errors.push(`${account.platform}: sync failed`);
+      const message =
+        error instanceof Error ? error.message : `${account.platform}: sync failed`;
+      errors.push(message);
     }
   }
 
