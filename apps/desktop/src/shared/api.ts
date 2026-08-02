@@ -193,4 +193,6 @@ export interface DesktopApi {
   emulationRemoveRom(sourceId: string): Promise<{ ok: boolean }>;
   emulationLaunch(sourceId: string): Promise<LaunchResult>;
   onEmulationScanProgress(cb: (data: { consoleId?: string; scanned: number; total: number }) => void): () => void;
+  settingsGet(key: string): Promise<string | null>;
+  settingsSet(key: string, value: string): Promise<void>;
 }

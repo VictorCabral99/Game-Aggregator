@@ -50,6 +50,8 @@ const api: DesktopApi = {
     ipcRenderer.on('emulation:scan-progress', listener);
     return () => ipcRenderer.removeListener('emulation:scan-progress', listener);
   },
+  settingsGet: (key: string) => ipcRenderer.invoke('settings:get', key),
+  settingsSet: (key: string, value: string) => ipcRenderer.invoke('settings:set', { key, value }),
 };
 
 contextBridge.exposeInMainWorld('api', api);

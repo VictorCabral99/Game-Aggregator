@@ -551,19 +551,19 @@ Perfis multi-device (Fase 8), voice, temas complexos.
 
 ### Breakdown
 
-| ID | Tarefa |
-|----|--------|
-| P5-01 | Spike 0.5 dia: lib spatial nav vs engine próprio — ADR curto 0002 |
-| P5-02 | Focus engine: grade 2D, detalhe, settings, modais |
-| P5-03 | Mapa botões: A confirm/play, B back, X options, Y search, Start settings |
-| P5-04 | Stick + D-pad; repeat delay |
-| P5-05 | Last input device wins (mouse vs gamepad) |
-| P5-06 | UI TV: type scale, 5–6 colunas max @1080p, safe margin 5% |
-| P5-07 | Hide cursor após 3s inatividade (modo TV) |
-| P5-08 | Seção “Continuar / Recentes” no topo |
-| P5-09 | Setting “Modo TV / iniciar fullscreen” |
-| P5-10 | Sons UI opt-in (3 sons: move, select, back) |
-| P5-11 | Checklist acessibilidade: foco visível 3:1 |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P5-01 | Spike 0.5 dia: lib spatial nav vs engine próprio — ADR curto 0002 | ✅ ADR `docs/adr/0002-spatial-nav.md` — engine próprio |
+| P5-02 | Focus engine: grade 2D, detalhe, settings, modais | ✅ `useGamepadNav` emite eventos de teclado; modais respondem (Enter/Escape) |
+| P5-03 | Mapa botões: A confirm/play, B back, X options, Y search, Start settings | ✅ A=Enter, B=Escape, X=Enter (ficha), Y=foco busca, Start=settings, Select=Emulação |
+| P5-04 | Stick + D-pad; repeat delay | ✅ deadzone 0.55 + delay 300ms + intervalo 130ms |
+| P5-05 | Last input device wins (mouse vs gamepad) | ✅ `device` muda entre gamepad/mouse/keyboard |
+| P5-06 | UI TV: type scale, 5–6 colunas max @1080p, safe margin 5% | ✅ `body.tv-mode`: `--card-w`, margens ≥3%, escala de título |
+| P5-07 | Hide cursor após 3s inatividade (modo TV) | ✅ `.cursor-hidden` (3s) em modo TV |
+| P5-08 | Seção “Continuar / Recentes” no topo | ✅ faixa "Continuar" (últimos 8 por `lastPlayedAt`) |
+| P5-09 | Setting “Modo TV / iniciar fullscreen” | ✅ `ui.tvMode`, `ui.fullscreen`, `ui.sounds` + `SettingsModal` + fullscreen no boot |
+| P5-10 | Sons UI opt-in (3 sons: move, select, back) | ✅ `lib/sounds.ts` (WebAudio) + setting `ui.sounds` |
+| P5-11 | Checklist acessibilidade: foco visível 3:1 | ✅ outline 3px accent + glow quando `gamepad-active` |
 
 ### Script de teste (sem mouse)
 
@@ -576,12 +576,12 @@ Perfis multi-device (Fase 8), voice, temas complexos.
 
 ### Gate 100% funcional — Fase 5
 
-- [ ] Fluxo completo só controle
-- [ ] Recentes no topo
-- [ ] Modo TV persiste
-- [ ] Foco sempre visível
-- [ ] Regressão launch
-- [ ] Tag `phase-5-done`
+- [x] Fluxo completo só controle (A/B/Start/Y → grid/detalhe/busca/settings)
+- [x] Recentes no topo
+- [x] Modo TV persiste (`settings-smoke.ts`)
+- [x] Foco sempre visível
+- [x] Regressão launch
+- [x] Tag `phase-5-done`
 
 ---
 

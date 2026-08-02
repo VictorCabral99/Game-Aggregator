@@ -12,7 +12,8 @@ Launcher unificado para Windows. **Não é um fork do Heroic**: reusa sidecars
 - **Fase 2E** ✅ integração — Sync tudo, tela Providers, filtro por plataforma, About com atribuições
 - **Fase 3** ✅ biblioteca unificada — canonical_games + game_sources (dedupe/auto-merge), capas offline em cache disco, gêneros, busca e filtros
 - **Fase 4** ✅ consoles retro — entrada “Emulação” (tipo pasta) → consoles → jogos; pasta padrão drop-in por console; emulador relativo trocável; mapeamento manual de ROM; filtro Retro
-- **Fase 5+** em andamento
+- **Fase 5** ✅ experiência console/TV — navegação por controle (A/B/X/Y/Start/Select), modo TV com cursor oculto, seção “Continuar”, settings de UI (TV/fullscreen/sons) e sons opt-in
+- **Fase 6+** em andamento
 
 ## Sidecars (Epic/GOG/Amazon)
 
@@ -47,6 +48,7 @@ node tools/scripts/normalize-smoke.ts       # normalizeTitle (Fase 3)
 node tools/scripts/migration-upgrade-smoke.ts  # upgrade v2→v4 (Fase 3)
 node tools/scripts/perf-filter-smoke.ts     # filtro 200 itens <300ms (Fase 3)
 node tools/scripts/emulation-smoke.ts       # consoles retro + drop-in (Fase 4)
+node tools/scripts/settings-smoke.ts        # settings UI (Modo TV/sons) (Fase 5)
 ```
 
 ## Emulação (Fase 4)

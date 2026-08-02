@@ -9,16 +9,18 @@ import { registerSteamHandlers } from './ipc/steam';
 import { registerStoreHandlers } from './ipc/store';
 import { registerProviderHandlers } from './ipc/providers';
 import { registerEmulationHandlers } from './ipc/emulation';
+import { getSetting } from './db';
 
 protocol.registerSchemesAsPrivileged([
   { scheme: 'cover', privileges: { secure: true, supportFetchAPI: true, stream: true } },
 ]);
 
 function createWindow(): void {
+  const startFullscreen = getSetting('ui.fullscreen') === '1';
   const win = new BrowserWindow({
     width: 1920,
     height: 1080,
-    fullscreen: true,
+    fullscreen: startFullscreen,
     autoHideMenuBar: true,
     title: 'Game Aggregator Launcher',
     webPreferences: {

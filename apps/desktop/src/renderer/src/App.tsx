@@ -16,7 +16,10 @@ import ProvidersModal from './components/ProvidersModal';
 import AboutModal from './components/AboutModal';
 import DuplicatesModal from './components/DuplicatesModal';
 import EmulationModal from './components/EmulationModal';
+import SettingsModal from './components/SettingsModal';
 import Toast from './components/Toast';
+import { useGamepadNav } from './hooks/useGamepadNav';
+import { setSoundsEnabled, uiBack, uiMove, uiSelect } from './lib/sounds';
 
 type View =
   | { kind: 'library' }
@@ -25,7 +28,8 @@ type View =
   | { kind: 'providers' }
   | { kind: 'about' }
   | { kind: 'duplicates' }
-  | { kind: 'emulation' };
+  | { kind: 'emulation' }
+  | { kind: 'settings' };
 
 type PlatformFilter = 'all' | GamePlatform;
 
@@ -67,7 +71,9 @@ export default function App(): JSX.Element {
   const [query, setQuery] = useState('');
   const [syncingAll, setSyncingAll] = useState(false);
   const [downloadingCovers, setDownloadingCovers] = useState(false);
+  const [tvMode, setTvMode] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -98,6 +104,57 @@ export default function App(): JSX.Element {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, [refresh, notify]);
+
+  // Settings de UX (Fase 5): modo TV, sons, fullscreen no boot.
+  useEffect(() => {
+    void window.api
+      .settingsGet('ui.tvMode')
+      .then((v) => setTvMode(v === '1'))
+      .catch(() => undefined);
+    void window.api
+      .settingsGet('ui.sounds')
+      .then((v) => setSoundsEnabled(v === '1'))
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('tv-mode', tvMode);
+  }, [tvMode]);
+
+  useGamepadNav({
+    enabled: true,
+    tvMode,
+    onDeviceChange: (device) => {
+      document.body.classList.toggle('gamepad-active', device === 'gamepad');
+    },
+    onAction: (action) => {
+      switch (action) {
+        case 'confirm':
+        case 'open':
+          uiSelect();
+          break;
+        case 'back':
+          uiBack();
+          break;
+        case 'search':
+          searchRef.current?.focus();
+          searchRef.current?.select();
+          break;
+        case 'settings':
+          setView((v) => (v.kind === 'settings' ? { kind: 'library' } : { kind: 'settings' }));
+          break;
+        case 'emulation':
+          setView({ kind: 'emulation' });
+          break;
+        case 'up':
+        case 'down':
+        case 'left':
+        case 'right':
+          uiMove();
+          break;
+      }
+    },
+  });
 
   const syncAll = async () => {
     setSyncingAll(true);
@@ -165,18 +222,27 @@ export default function App(): JSX.Element {
       if (e.key === 'ArrowRight') {
         e.preventDefault();
         setSelected((i) => Math.min(i + 1, visibleGames.length - 1));
+        uiMove();
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         setSelected((i) => Math.max(i - 1, 0));
+        uiMove();
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelected((i) => Math.min(i + cols, visibleGames.length - 1));
+        uiMove();
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelected((i) => Math.max(i - cols, 0));
+        uiMove();
       } else if (e.key === 'Enter' && visibleGames.length > 0) {
         e.preventDefault();
+        uiSelect();
         setView({ kind: 'detail', gameId: visibleGames[selected].id });
+      } else if (e.key === 'Escape') {
+        if (document.activeElement === searchRef.current) {
+          (document.activeElement as HTMLElement).blur();
+        }
       }
     };
     window.addEventListener('keydown', onKey);
@@ -231,6 +297,15 @@ export default function App(): JSX.Element {
       return { ok: false, error: msg };
     }
   };
+
+  const recentGames = useMemo(() => {
+    return games
+      .filter((g) => g.preferredSource?.lastPlayedAt)
+      .sort((a, b) =>
+        (b.preferredSource?.lastPlayedAt ?? '').localeCompare(a.preferredSource?.lastPlayedAt ?? '')
+      )
+      .slice(0, 8);
+  }, [games]);
 
   const detailGame =
     view.kind === 'detail' ? games.find((g) => g.id === view.gameId) ?? null : null;
@@ -287,6 +362,9 @@ export default function App(): JSX.Element {
           <button type="button" onClick={() => setView({ kind: 'about' })}>
             Sobre
           </button>
+          <button type="button" onClick={() => setView({ kind: 'settings' })}>
+            Configurações
+          </button>
           <button
             type="button"
             className="primary"
@@ -336,9 +414,10 @@ export default function App(): JSX.Element {
 
       <div className="toolbar">
         <input
+          ref={searchRef}
           type="search"
           className="search"
-          placeholder="Buscar por nome… (filtra a grade)"
+          placeholder="Buscar por nome… (Y no controle)"
           value={query}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -365,6 +444,26 @@ export default function App(): JSX.Element {
         )}
         <span className="toolbar__count">{visibleGames.length} de {games.length} jogos</span>
       </div>
+
+      {view.kind === 'library' && filter === 'all' && !query && recentGames.length > 0 && (
+        <section className="recent" aria-label="Continuar jogando">
+          <h2 className="recent__title">Continuar</h2>
+          <div className="recent__row">
+            {recentGames.map((game, i) => (
+              <GameCard
+                key={game.id}
+                game={game}
+                selected={false}
+                onSelect={() => {
+                  setSelected(0);
+                  setView({ kind: 'detail', gameId: game.id });
+                }}
+                onOpen={() => setView({ kind: 'detail', gameId: game.id })}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       {visibleGames.length === 0 ? (
         <section className="empty">
@@ -437,6 +536,10 @@ export default function App(): JSX.Element {
           onLaunch={launch}
           onChanged={() => void refresh()}
         />
+      )}
+
+      {view.kind === 'settings' && (
+        <SettingsModal onClose={() => setView({ kind: 'library' })} onChanged={() => undefined} />
       )}
 
       <Toast message={toast?.message ?? ''} kind={toast?.kind ?? 'ok'} />

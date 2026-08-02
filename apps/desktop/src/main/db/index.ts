@@ -42,6 +42,16 @@ export function setSetting(key: string, value: string): void {
 }
 
 export function registerDbHandlers(): void {
+  ipcMain.handle('settings:get', (_event, key: string): string | null => {
+    if (!key) throw new Error('key é obrigatório');
+    return getSetting(key);
+  });
+
+  ipcMain.handle('settings:set', (_event, args: { key: string; value: string }): void => {
+    if (!args?.key) throw new Error('key é obrigatório');
+    setSetting(args.key, String(args.value ?? ''));
+  });
+
   ipcMain.handle('db:health', (): DbHealth => {
     try {
       const instance = initDatabase();
