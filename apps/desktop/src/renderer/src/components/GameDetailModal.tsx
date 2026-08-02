@@ -1,15 +1,24 @@
 import { useEffect, useState } from 'react';
-import type { Game, GameSource, LaunchResult } from '../../../shared/api';
+import type { Game, GameSource, LaunchResult, RatingsSummary } from '../../../shared/api';
 import { coverSrc, PLATFORM_LABELS } from './GameCard';
 
 interface Props {
   game: Game;
+  rating?: RatingsSummary | null;
+  hideScore?: boolean;
   onClose: () => void;
   onEdit: () => void;
   onRemove: () => Promise<void>;
   onLaunch: (game: Game, source?: GameSource) => Promise<LaunchResult>;
   onSeparateSource: (source: GameSource) => Promise<void>;
+  onSyncRating?: () => void;
 }
+
+const SOURCE_NAMES: Record<string, string> = {
+  steam: 'Steam',
+  rawg: 'RAWG',
+  metacritic: 'Metacritic',
+};
 
 function sourceLabel(source: GameSource): string {
   const platform = PLATFORM_LABELS[source.platform] ?? source.platform;
@@ -20,13 +29,27 @@ function sourceLabel(source: GameSource): string {
   return platform;
 }
 
+function isStale(iso: string): boolean {
+  const ageDays = (Date.now() - new Date(iso).getTime()) / 86400000;
+  return ageDays > 7;
+}
+
+function dateLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
 export default function GameDetailModal({
   game,
+  rating,
+  hideScore,
   onClose,
   onEdit,
   onRemove,
   onLaunch,
   onSeparateSource,
+  onSyncRating,
 }: Props): JSX.Element {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
   const [launching, setLaunching] = useState<GameSource | 'preferred' | null>(null);
@@ -88,6 +111,51 @@ export default function GameDetailModal({
             </div>
           )}
         </dl>
+
+        {!hideScore && (
+          <div className="ratings">
+            <div className="ratings__head">
+              <strong>Notas</strong>
+              {rating?.updatedAt && (
+                <span
+                  className={`ratings__stale ${isStale(rating.updatedAt) ? 'ratings__stale--stale' : ''}`}
+                >
+                  {isStale(rating.updatedAt) ? 'desatualizadas' : `atualizadas ${dateLabel(rating.updatedAt)}`}
+                </span>
+              )}
+              {onSyncRating && (
+                <button type="button" className="ratings__sync" onClick={onSyncRating}>
+                  Atualizar
+                </button>
+              )}
+            </div>
+            {!rating || rating.sources.every((s) => s.score === null) ? (
+              <p className="ratings__empty">Sem avaliação.</p>
+            ) : (
+              <div className="ratings__grid">
+                {rating.sources.map((s) => {
+                  if (s.score === null) return null;
+                  const display =
+                    s.source === 'rawg' && s.score <= 5 ? Math.round(s.score * 20 * 10) / 10 : s.score;
+                  return (
+                    <div key={s.source} className="ratings__cell">
+                      <span className="ratings__value">{Math.round(display)}</span>
+                      <span className="ratings__label">{SOURCE_NAMES[s.source] ?? s.source}</span>
+                      {s.reviewCount !== null && s.reviewCount > 0 && (
+                        <span className="ratings__count">
+                          {s.reviewCount >= 1000
+                            ? `${(s.reviewCount / 1000).toFixed(1)}k`
+                            : s.reviewCount}{' '}
+                          reviews
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {game.sources.length > 0 && (
           <div className="sources">

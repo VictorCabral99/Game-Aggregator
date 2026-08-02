@@ -148,6 +148,29 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
         ('ps2',     'retroarch', 'pcsx2_libretro.dll',    NULL, 1);
     `,
   },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE IF NOT EXISTS ratings (
+        game_id      TEXT NOT NULL REFERENCES canonical_games(id) ON DELETE CASCADE,
+        source       TEXT NOT NULL,
+        rating       REAL,
+        review_count INTEGER,
+        url          TEXT,
+        matched_name TEXT,
+        last_updated TEXT,
+        PRIMARY KEY (game_id, source)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_ratings_game ON ratings (game_id);
+
+      CREATE TABLE IF NOT EXISTS api_cache (
+        cache_key   TEXT PRIMARY KEY,
+        body        TEXT NOT NULL,
+        fetched_at  TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 export function applyMigrations(db: DatabaseSync): void {

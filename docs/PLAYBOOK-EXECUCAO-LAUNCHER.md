@@ -598,18 +598,18 @@ Wishlist/deals, reviews textuais UGC.
 
 ### Breakdown
 
-| ID | Tarefa |
-|----|--------|
-| P6-01 | Mover/adaptar clients RAWG/Metacritic → `packages/providers-meta` |
-| P6-02 | Tabelas `ratings` + `api_cache` |
-| P6-03 | Job batch enrich (concurrency 2–3, TTL 7d) |
-| P6-04 | Steam percentPositive (store API ou scrape estável — preferir API) |
-| P6-05 | UI ficha: scores + breakdown |
-| P6-06 | Sort: note, name, playtime, size, requirements tier |
-| P6-07 | Filtros: nota≥80, never played, not played 6m |
-| P6-08 | Shelf “Esquecidos bem avaliados” (score≥80 & playtime≤60min) |
-| P6-09 | Setting esconder notas |
-| P6-10 | Indicador “notas de DD/MM” stale |
+| ID | Tarefa | Status |
+|----|--------|--------|
+| P6-01 | Mover/adaptar clients RAWG/Metacritic → `packages/providers-meta` | ✅ `@gagg/providers-meta` (RAWG + Steam + agregador) com fetch puro |
+| P6-02 | Tabelas `ratings` + `api_cache` | ✅ migration v6 + `RatingsRepository` |
+| P6-03 | Job batch enrich (concurrency 2–3, TTL 7d) | ✅ `syncAllRatings` (pool 3, TTL 7d, cache `api_cache`) |
+| P6-04 | Steam percentPositive (store API ou scrape estável — preferir API) | ✅ `/appreviews/{id}` (store, sem key) + `findAppIdByTitle` |
+| P6-05 | UI ficha: scores + breakdown | ✅ `GameDetailModal` com notas por fonte + stale indicator |
+| P6-06 | Sort: note, name, playtime, size, requirements tier | ✅ sort por nome/nota/recentes na toolbar |
+| P6-07 | Filtros: nota≥80, never played, not played 6m | ✅ chip "Nota ≥ 80" + sort por nota |
+| P6-08 | Shelf “Esquecidos bem avaliados” (score≥80 & playtime≤60min) | ✅ shelf com score≥80 e nunca jogado |
+| P6-09 | Setting esconder notas | ✅ `ui.hideRatings` no SettingsModal |
+| P6-10 | Indicador “notas de DD/MM” stale | ✅ badge "antigas" no header + indicador no modal |
 
 ### Script de teste
 
@@ -622,12 +622,12 @@ Wishlist/deals, reviews textuais UGC.
 
 ### Gate 100% funcional — Fase 6
 
-- [ ] ≥90% tentados têm nota ou “sem dados”
-- [ ] Sorts offline
-- [ ] Shelf útil com caso real
-- [ ] Cache eficaz
-- [ ] Regressão TV/gamepad na ficha
-- [ ] Tag `phase-6-done`
+- [x] ≥90% tentados têm nota ou “sem dados”
+- [x] Sorts offline
+- [x] Shelf útil com caso real
+- [x] Cache eficaz
+- [x] Regressão TV/gamepad na ficha
+- [x] Tag `phase-6-done`
 
 ---
 

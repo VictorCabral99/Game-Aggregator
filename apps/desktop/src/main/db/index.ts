@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { DbHealth } from '../../shared/api';
 import { applyMigrations } from './migrations';
 import { LibraryRepository } from './games';
+import { RatingsRepository } from './ratings';
 
 let db: DatabaseSync | null = null;
 let dbPath = '';
@@ -25,6 +26,10 @@ export function getLibraryRepository(): LibraryRepository {
   return new LibraryRepository(initDatabase());
 }
 
+export function getRatingsRepository(): RatingsRepository {
+  return new RatingsRepository(initDatabase());
+}
+
 export function getSetting(key: string): string | null {
   const row = initDatabase()
     .prepare(`SELECT value FROM app_settings WHERE key = ?`)
@@ -39,6 +44,27 @@ export function setSetting(key: string, value: string): void {
        ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
     )
     .run(key, value);
+}
+
+export interface CacheEntry {
+  body: string;
+  fetched_at: string;
+}
+
+export function getCacheRow(key: string): CacheEntry | null {
+  const row = initDatabase()
+    .prepare(`SELECT body, fetched_at FROM api_cache WHERE cache_key = ?`)
+    .get(key) as CacheEntry | undefined;
+  return row ?? null;
+}
+
+export function upsertCache(key: string, body: string): void {
+  initDatabase()
+    .prepare(
+      `INSERT INTO api_cache (cache_key, body, fetched_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT (cache_key) DO UPDATE SET body = excluded.body, fetched_at = excluded.fetched_at`
+    )
+    .run(key, body);
 }
 
 export function registerDbHandlers(): void {

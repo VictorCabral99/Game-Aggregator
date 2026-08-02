@@ -9,6 +9,7 @@ import { registerSteamHandlers } from './ipc/steam';
 import { registerStoreHandlers } from './ipc/store';
 import { registerProviderHandlers } from './ipc/providers';
 import { registerEmulationHandlers } from './ipc/emulation';
+import { registerRatingsHandlers } from './ipc/ratings';
 import { getSetting } from './db';
 
 protocol.registerSchemesAsPrivileged([
@@ -61,6 +62,7 @@ app.whenReady().then(() => {
   registerStoreHandlers();
   registerProviderHandlers();
   registerEmulationHandlers();
+  registerRatingsHandlers();
 
   createWindow();
 

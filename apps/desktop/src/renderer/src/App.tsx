@@ -5,6 +5,7 @@ import type {
   GamePlatform,
   GameSource,
   LaunchResult,
+  RatingsSummary,
   SteamStatus,
   StoreId,
   StoreStatus,
@@ -72,8 +73,28 @@ export default function App(): JSX.Element {
   const [syncingAll, setSyncingAll] = useState(false);
   const [downloadingCovers, setDownloadingCovers] = useState(false);
   const [tvMode, setTvMode] = useState(false);
+  const [ratings, setRatings] = useState<Record<string, RatingsSummary | null>>({});
+  const [syncingRatings, setSyncingRatings] = useState(false);
+  const [sortBy, setSortBy] = useState<'name' | 'rating' | 'recent'>('name');
+  const [minRating, setMinRating] = useState(0);
+  const [hideNotes, setHideNotes] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  const refreshRatings = useCallback(async () => {
+    const map = await window.api.ratingsForLibrary();
+    setRatings(map);
+  }, []);
+
+  const ratingsStaleDays = useCallback(() => {
+    let stale = 0;
+    for (const summary of Object.values(ratings)) {
+      if (!summary?.updatedAt) continue;
+      const days = (Date.now() - new Date(summary.updatedAt).getTime()) / 86400000;
+      if (days > 7) stale += 1;
+    }
+    return stale;
+  }, [ratings]);
 
   const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -100,10 +121,11 @@ export default function App(): JSX.Element {
         .catch(() => setStores((prev) => ({ ...prev, [id]: null })));
     }
     void window.api.coversDownloadMissing().catch(() => undefined);
+    void refreshRatings().catch(() => undefined);
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
-  }, [refresh, notify]);
+  }, [refresh, notify, refreshRatings]);
 
   // Settings de UX (Fase 5): modo TV, sons, fullscreen no boot.
   useEffect(() => {
@@ -114,6 +136,10 @@ export default function App(): JSX.Element {
     void window.api
       .settingsGet('ui.sounds')
       .then((v) => setSoundsEnabled(v === '1'))
+      .catch(() => undefined);
+    void window.api
+      .settingsGet('ui.hideRatings')
+      .then((v) => setHideNotes(v === '1'))
       .catch(() => undefined);
   }, []);
 
@@ -189,6 +215,28 @@ export default function App(): JSX.Element {
     }
   };
 
+  const syncRatings = async () => {
+    setSyncingRatings(true);
+    try {
+      const res = await window.api.ratingsSyncAll();
+      if (res.noKey) {
+        notify('Defina a chave RAWG em Configurações para buscar notas', 'error');
+      } else if (res.updated > 0) {
+        notify(`Notas atualizadas: ${res.updated} jogos${res.skippedFresh > 0 ? ` (${res.skippedFresh} já frescos)` : ''}`);
+      } else if (res.skippedFresh > 0) {
+        notify(`Notas já frescas (${res.skippedFresh} jogos, TTL 7 dias)`);
+      } else {
+        notify('Nenhuma nota encontrada para a biblioteca atual');
+      }
+      await refreshRatings();
+      await refresh();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setSyncingRatings(false);
+    }
+  };
+
   const cols = Math.max(1, Math.floor((window.innerWidth - PADDING * 2) / (CARD_W + GAP)));
 
   const allGenres = useMemo(() => {
@@ -199,17 +247,37 @@ export default function App(): JSX.Element {
 
   const visibleGames = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return games.filter((g) => {
+    const scored = games.filter((g) => {
       if (filter !== 'all' && !g.sources.some((s) => s.platform === filter)) return false;
       if (installedOnly && !g.sources.some((s) => s.isInstalled)) return false;
       if (genreFilter !== 'all' && !g.genres.includes(genreFilter)) return false;
+      if (minRating > 0 && (ratings[g.id]?.score ?? 0) < minRating) return false;
       if (q) {
         const haystack = `${g.title} ${g.normalizedTitle} ${g.sources.map((s) => s.title).join(' ')}`.toLowerCase();
         if (!q.split(/\s+/).every((token) => haystack.includes(token))) return false;
       }
       return true;
     });
-  }, [games, filter, genreFilter, installedOnly, query]);
+    const sorted = [...scored];
+    if (sortBy === 'rating') {
+      sorted.sort((a, b) => (ratings[b.id]?.score ?? 0) - (ratings[a.id]?.score ?? 0));
+    } else if (sortBy === 'recent') {
+      sorted.sort((a, b) =>
+        (b.preferredSource?.lastPlayedAt ?? '').localeCompare(a.preferredSource?.lastPlayedAt ?? '')
+      );
+    } else {
+      sorted.sort((a, b) => a.title.localeCompare(b.title));
+    }
+    return sorted;
+  }, [games, filter, genreFilter, installedOnly, query, minRating, sortBy, ratings]);
+
+  // Shelf "Esquecidos bem avaliados" (P6-08): score ≥ 80 e nunca/raramente jogado.
+  const forgottenHighScore = useMemo(() => {
+    return games
+      .filter((g) => (ratings[g.id]?.score ?? 0) >= 80)
+      .filter((g) => !g.sources.some((s) => s.lastPlayedAt))
+      .slice(0, 6);
+  }, [games, ratings]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -350,6 +418,19 @@ export default function App(): JSX.Element {
           >
             {downloadingCovers ? 'Baixando capas…' : 'Baixar capas'}
           </button>
+          <button
+            type="button"
+            disabled={syncingRatings}
+            onClick={() => void syncRatings()}
+            title="Busca notas RAWG/Metacritic/Steam para a biblioteca (TTL 7 dias)"
+          >
+            {syncingRatings ? 'Buscando notas…' : 'Sync notas'}
+            {!syncingRatings && ratingsStaleDays() > 0 && (
+              <span className="badge badge--stale" title="Notas com mais de 7 dias">
+                {ratingsStaleDays()} antigas
+              </span>
+            )}
+          </button>
           <button type="button" onClick={() => setView({ kind: 'providers' })}>
             Providers
           </button>
@@ -410,6 +491,20 @@ export default function App(): JSX.Element {
             {games.filter((g) => g.sources.some((s) => s.isInstalled)).length}
           </span>
         </button>
+        <button
+          type="button"
+          className={`filter-chip ${minRating === 80 ? 'filter-chip--active' : ''}`}
+          aria-pressed={minRating === 80}
+          onClick={() => {
+            setMinRating((v) => (v === 80 ? 0 : 80));
+            setSelected(0);
+          }}
+        >
+          Nota ≥ 80
+          <span className="filter-chip__count">
+            {games.filter((g) => (ratings[g.id]?.score ?? 0) >= 80).length}
+          </span>
+        </button>
       </div>
 
       <div className="toolbar">
@@ -424,6 +519,19 @@ export default function App(): JSX.Element {
             setSelected(0);
           }}
         />
+        <select
+          className="genre-filter"
+          value={sortBy}
+          onChange={(e) => {
+            setSortBy(e.target.value as 'name' | 'rating' | 'recent');
+            setSelected(0);
+          }}
+          aria-label="Ordenar por"
+        >
+          <option value="name">Ordenar: nome</option>
+          <option value="rating">Ordenar: nota</option>
+          <option value="recent">Ordenar: recentes</option>
+        </select>
         {allGenres.length > 0 && (
           <select
             className="genre-filter"
@@ -454,6 +562,30 @@ export default function App(): JSX.Element {
                 key={game.id}
                 game={game}
                 selected={false}
+                score={ratings[game.id]?.score}
+                hideScore={hideNotes}
+                onSelect={() => {
+                  setSelected(0);
+                  setView({ kind: 'detail', gameId: game.id });
+                }}
+                onOpen={() => setView({ kind: 'detail', gameId: game.id })}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {view.kind === 'library' && filter === 'all' && !query && forgottenHighScore.length > 0 && (
+        <section className="recent" aria-label="Esquecidos bem avaliados">
+          <h2 className="recent__title">Esquecidos bem avaliados</h2>
+          <div className="recent__row">
+            {forgottenHighScore.map((game, i) => (
+              <GameCard
+                key={game.id}
+                game={game}
+                selected={false}
+                score={ratings[game.id]?.score}
+                hideScore={hideNotes}
                 onSelect={() => {
                   setSelected(0);
                   setView({ kind: 'detail', gameId: game.id });
@@ -489,6 +621,8 @@ export default function App(): JSX.Element {
               key={game.id}
               game={game}
               selected={i === selected}
+              score={ratings[game.id]?.score}
+              hideScore={hideNotes}
               onSelect={() => setSelected(i)}
               onOpen={() => setView({ kind: 'detail', gameId: game.id })}
             />
@@ -503,11 +637,14 @@ export default function App(): JSX.Element {
       {detailGame && (
         <GameDetailModal
           game={detailGame}
+          rating={ratings[detailGame.id] ?? null}
+          hideScore={hideNotes}
           onClose={() => setView({ kind: 'library' })}
           onEdit={() => setView({ kind: 'form', gameId: detailGame.id })}
           onRemove={() => remove()}
           onLaunch={launch}
           onSeparateSource={separateSource}
+          onSyncRating={() => void syncRatings()}
         />
       )}
 

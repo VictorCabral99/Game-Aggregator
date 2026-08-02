@@ -9,11 +9,13 @@ export function coverSrc(game: Game): string | null {
 interface Props {
   game: Game;
   selected: boolean;
+  score?: number | null;
+  hideScore?: boolean;
   onSelect: () => void;
   onOpen: () => void;
 }
 
-export default function GameCard({ game, selected, onSelect, onOpen }: Props): JSX.Element {
+export default function GameCard({ game, selected, score, hideScore, onSelect, onOpen }: Props): JSX.Element {
   const src = coverSrc(game);
   const preferred = game.preferredSource;
   const badges = game.sources.map((s) => PLATFORM_LABELS[s.platform]).filter(Boolean);
@@ -34,6 +36,11 @@ export default function GameCard({ game, selected, onSelect, onOpen }: Props): J
         )}
         {uniqueBadges.length > 0 && (
           <span className="card__badge">{uniqueBadges.join(' · ')}</span>
+        )}
+        {!hideScore && score !== undefined && score !== null && score > 0 && (
+          <span className={`card__score ${score >= 80 ? 'card__score--high' : ''}`}>
+            {Math.round(score)}
+          </span>
         )}
       </div>
       <div className="card__title">{game.title}</div>

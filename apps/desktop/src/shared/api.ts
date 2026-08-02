@@ -159,6 +159,38 @@ export interface RomScanResult {
   added: number;
 }
 
+export type RatingSource = 'rawg' | 'metacritic' | 'steam';
+
+export interface GameRating {
+  gameId: string;
+  source: RatingSource;
+  rating: number | null;
+  reviewCount: number | null;
+  url: string | null;
+  matchedName: string | null;
+  lastUpdated: string | null;
+}
+
+export interface RatingsSummary {
+  score: number | null;
+  source: RatingSource | null;
+  updatedAt: string | null;
+  sources: Array<{
+    source: RatingSource;
+    score: number | null;
+    reviewCount: number | null;
+    lastUpdated: string | null;
+  }>;
+}
+
+export interface RatingsSyncResult {
+  attempted: number;
+  updated: number;
+  skippedFresh: number;
+  noKey: boolean;
+  error?: string;
+}
+
 export interface DesktopApi {
   launchExe(req: LaunchRequest): Promise<LaunchResult>;
   dbHealth(): Promise<DbHealth>;
@@ -195,4 +227,8 @@ export interface DesktopApi {
   onEmulationScanProgress(cb: (data: { consoleId?: string; scanned: number; total: number }) => void): () => void;
   settingsGet(key: string): Promise<string | null>;
   settingsSet(key: string, value: string): Promise<void>;
+  ratingsForGame(gameId: string): Promise<RatingsSummary | null>;
+  ratingsForLibrary(): Promise<Record<string, RatingsSummary | null>>;
+  ratingsSyncAll(): Promise<RatingsSyncResult>;
+  ratingsSettings(): Promise<{ rawgKey: string; steamKey: string }>;
 }

@@ -13,7 +13,8 @@ Launcher unificado para Windows. **Não é um fork do Heroic**: reusa sidecars
 - **Fase 3** ✅ biblioteca unificada — canonical_games + game_sources (dedupe/auto-merge), capas offline em cache disco, gêneros, busca e filtros
 - **Fase 4** ✅ consoles retro — entrada “Emulação” (tipo pasta) → consoles → jogos; pasta padrão drop-in por console; emulador relativo trocável; mapeamento manual de ROM; filtro Retro
 - **Fase 5** ✅ experiência console/TV — navegação por controle (A/B/X/Y/Start/Select), modo TV com cursor oculto, seção “Continuar”, settings de UI (TV/fullscreen/sons) e sons opt-in
-- **Fase 6+** em andamento
+- **Fase 6** ✅ avaliações e rediscovery — notas RAWG/Metacritic/Steam (batch com cache TTL 7d), sort/filtro por nota, shelf “Esquecidos bem avaliados”, setting esconder notas
+- **Fase 7+** em andamento
 
 ## Sidecars (Epic/GOG/Amazon)
 
@@ -49,7 +50,18 @@ node tools/scripts/migration-upgrade-smoke.ts  # upgrade v2→v4 (Fase 3)
 node tools/scripts/perf-filter-smoke.ts     # filtro 200 itens <300ms (Fase 3)
 node tools/scripts/emulation-smoke.ts       # consoles retro + drop-in (Fase 4)
 node tools/scripts/settings-smoke.ts        # settings UI (Modo TV/sons) (Fase 5)
+node tools/scripts/ratings-smoke.ts         # notas RAWG/Steam + shelf (Fase 6)
 ```
+
+## Notas (Fase 6)
+
+- Botão **Sync notas** busca RAWG (nota da comunidade + Metacritic via detalhes) e % de
+  reviews positivas da Steam (store API, sem key) para a biblioteca inteira.
+- Concurrency 3 + cache `api_cache` no SQLite; TTL de 7 dias (2ª sync quase sem HTTP).
+- Para RAWG, configure a **Chave RAWG** em Configurações (ou env `RAWG_API_KEY`).
+- Grade mostra o score no card; ficha mostra breakdown por fonte e aviso quando stale (>7 dias).
+- Sort por nota, filtro "Nota ≥ 80" e shelf "Esquecidos bem avaliados" (score ≥ 80, nunca jogado).
+- Setting **Esconder notas** (`ui.hideRatings`) remove scores da UI.
 
 ## Emulação (Fase 4)
 

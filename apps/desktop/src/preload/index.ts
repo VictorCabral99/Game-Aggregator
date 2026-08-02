@@ -52,6 +52,10 @@ const api: DesktopApi = {
   },
   settingsGet: (key: string) => ipcRenderer.invoke('settings:get', key),
   settingsSet: (key: string, value: string) => ipcRenderer.invoke('settings:set', { key, value }),
+  ratingsForGame: (gameId: string) => ipcRenderer.invoke('ratings:for-game', gameId),
+  ratingsForLibrary: () => ipcRenderer.invoke('ratings:for-library'),
+  ratingsSyncAll: () => ipcRenderer.invoke('ratings:sync-all'),
+  ratingsSettings: () => ipcRenderer.invoke('ratings:settings'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

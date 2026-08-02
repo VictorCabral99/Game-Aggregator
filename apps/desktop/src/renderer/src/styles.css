@@ -905,3 +905,119 @@ body.tv-mode .header h1 {
   height: 22px;
   accent-color: var(--accent);
 }
+
+.settings__row--key {
+  flex-wrap: wrap;
+}
+
+.settings__key-input {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #0a0d12;
+  color: var(--text);
+  font-family: inherit;
+}
+
+/* Fase 6 — notas */
+.card__score {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 30px;
+  padding: 3px 6px;
+  border-radius: 8px;
+  background: rgba(10, 13, 18, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-align: center;
+  backdrop-filter: blur(2px);
+}
+
+.card__score--high {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.4);
+}
+
+.badge--stale {
+  background: #7c2d12;
+  color: #fdba74;
+}
+
+.ratings {
+  margin: 4px 0 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0d1016;
+}
+
+.ratings__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.ratings__head strong {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.ratings__stale {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ratings__stale--stale {
+  color: #fdba74;
+}
+
+.ratings__sync {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 0.75rem;
+}
+
+.ratings__empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.ratings__grid {
+  display: flex;
+  gap: 10px;
+}
+
+.ratings__cell {
+  display: grid;
+  gap: 2px;
+  min-width: 84px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #0a0d12;
+  text-align: center;
+}
+
+.ratings__value {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.ratings__label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.ratings__count {
+  font-size: 0.68rem;
+  color: var(--muted);
+}

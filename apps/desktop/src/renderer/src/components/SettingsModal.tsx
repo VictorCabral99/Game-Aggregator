@@ -27,10 +27,16 @@ const ROWS: SettingRow[] = [
     label: 'Sons de UI',
     hint: 'Sons curtos ao mover, selecionar e voltar (controle/teclado)',
   },
+  {
+    key: 'ui.hideRatings',
+    label: 'Esconder notas',
+    hint: 'Não exibe scores na grade nem na ficha do jogo',
+  },
 ];
 
 export default function SettingsModal({ onClose, onChanged }: SettingsModalProps): JSX.Element {
   const [values, setValues] = useState<Record<string, boolean>>({});
+  const [rawgKey, setRawgKey] = useState('');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -41,6 +47,8 @@ export default function SettingsModal({ onClose, onChanged }: SettingsModalProps
         entries[row.key] = v === '1';
       }
       setValues(entries);
+      const keys = await window.api.ratingsSettings();
+      setRawgKey(keys.rawgKey);
       setLoading(false);
     };
     void load();
@@ -56,6 +64,11 @@ export default function SettingsModal({ onClose, onChanged }: SettingsModalProps
     const next = !values[key];
     setValues((prev) => ({ ...prev, [key]: next }));
     await window.api.settingsSet(key, next ? '1' : '0');
+    onChanged();
+  };
+
+  const saveRawgKey = async () => {
+    await window.api.settingsSet('keys.rawg', rawgKey.trim());
     onChanged();
   };
 
@@ -91,6 +104,20 @@ export default function SettingsModal({ onClose, onChanged }: SettingsModalProps
                 />
               </label>
             ))}
+            <div className="settings__row settings__row--key">
+              <span className="settings__text">
+                <strong>Chave RAWG</strong>
+                <small>Para notas da comunidade + Metacritic (rawg.io/apidocs)</small>
+              </span>
+              <input
+                type="password"
+                className="settings__key-input"
+                placeholder="RAWG_API_KEY"
+                value={rawgKey}
+                onChange={(e) => setRawgKey(e.target.value)}
+                onBlur={() => void saveRawgKey()}
+              />
+            </div>
           </div>
         )}
       </div>
