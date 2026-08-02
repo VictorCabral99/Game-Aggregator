@@ -25,6 +25,8 @@ const api: DesktopApi = {
   steamSetPath: (path: string) => ipcRenderer.invoke('steam:set-path', path),
   storeStatus: (id: StoreId) => ipcRenderer.invoke(`${id}:status`),
   storeScan: (id: StoreId) => ipcRenderer.invoke(`${id}:scan`),
+  providersList: () => ipcRenderer.invoke('providers:list'),
+  providersSyncAll: () => ipcRenderer.invoke('providers:sync-all'),
 };
 
 contextBridge.exposeInMainWorld('api', api);

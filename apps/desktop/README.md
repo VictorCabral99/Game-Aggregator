@@ -9,6 +9,7 @@ Launcher unificado para Windows. **Não é um fork do Heroic**: reusa sidecars
 - **Fase 1** ✅ MVP — biblioteca local de `.exe`, fullscreen, capas, instalador NSIS
 - **Fase 2A** ✅ Steam — scan local (`libraryfolders.vdf`/`appmanifest_*.acf`) + `steam://rungameid`
 - **Fase 2B–D** ✅ providers Epic (Legendary), GOG (gogdl) e Amazon (Nile) — dependem dos sidecars
+- **Fase 2E** ✅ integração — Sync tudo, tela Providers, filtro por plataforma, About com atribuições
 - **Fase 3+** em andamento — normalização, capas/metadados
 
 ## Sidecars (Epic/GOG/Amazon)

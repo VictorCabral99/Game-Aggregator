@@ -377,12 +377,12 @@ Dedupe cross-store, install/update queue, ratings, wishlist, UI Heroic, Luna.
 
 | ID | Tarefa | Detalhe |
 |----|--------|---------|
-| P2E-01 | Sync all | `Promise.allSettled` por provider |
-| P2E-02 | Tela Providers | status cards |
-| P2E-03 | Filtro rápido por plataforma | (ainda sem dedupe) |
-| P2E-04 | Atribuições About | Legendary, gogdl, Nile + links |
-| P2E-05 | Garantir zero código Heroic vendored | `rg` / review |
-| P2E-06 | Gate final + tag `phase-2-done` | |
+| P2E-01 | Sync all | `Promise.allSettled` por provider — botão "Sync tudo" + `providers:sync-all` |
+| P2E-02 | Tela Providers | status cards (disponível, versão sidecar, path, jogos, último scan, erro) |
+| P2E-03 | Filtro rápido por plataforma | chips Todos/Local/Steam/Epic/GOG/Amazon com contagem |
+| P2E-04 | Atribuições About | Legendary, gogdl, Nile + links; declaração "não é fork do Heroic" |
+| P2E-05 | Garantir zero código Heroic vendored | `rg` — só referências/docs/comentários, sem código-fonte |
+| P2E-06 | Gate final + tag `phase-2-done` | Ver abaixo |
 
 ### Modelo de dados nesta fase
 

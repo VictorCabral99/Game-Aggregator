@@ -10,12 +10,18 @@ import type {
 import GameCard from './components/GameCard';
 import GameDetailModal from './components/GameDetailModal';
 import GameFormModal from './components/GameFormModal';
+import ProvidersModal from './components/ProvidersModal';
+import AboutModal from './components/AboutModal';
 import Toast from './components/Toast';
 
 type View =
   | { kind: 'library' }
   | { kind: 'detail'; gameId: string }
-  | { kind: 'form'; gameId: string | null };
+  | { kind: 'form'; gameId: string | null }
+  | { kind: 'providers' }
+  | { kind: 'about' };
+
+type PlatformFilter = 'all' | Game['platform'];
 
 interface ToastState {
   message: string;
@@ -32,15 +38,24 @@ const STORE_LABELS: Array<{ id: StoreId; label: string }> = [
   { id: 'amazon', label: 'Amazon' },
 ];
 
+const FILTER_OPTIONS: Array<{ id: PlatformFilter; label: string }> = [
+  { id: 'all', label: 'Todos' },
+  { id: 'local', label: 'Local' },
+  { id: 'steam', label: 'Steam' },
+  { id: 'epic', label: 'Epic' },
+  { id: 'gog', label: 'GOG' },
+  { id: 'amazon', label: 'Amazon' },
+];
+
 export default function App(): JSX.Element {
   const [games, setGames] = useState<Game[]>([]);
   const [view, setView] = useState<View>({ kind: 'library' });
   const [selected, setSelected] = useState(0);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [steam, setSteam] = useState<SteamStatus | null>(null);
-  const [steamSyncing, setSteamSyncing] = useState(false);
   const [stores, setStores] = useState<Partial<Record<StoreId, StoreStatus | null>>>({});
-  const [storeSyncing, setStoreSyncing] = useState<Partial<Record<StoreId, boolean>>>({});
+  const [filter, setFilter] = useState<PlatformFilter>('all');
+  const [syncingAll, setSyncingAll] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
@@ -60,7 +75,7 @@ export default function App(): JSX.Element {
     void window.api
       .steamStatus()
       .then(setSteam)
-      .catch(() => setSteam({ available: false, path: null, gamesCount: 0 }));
+      .catch(() => setSteam({ available: false, path: null, gamesCount: 0, lastScanAt: null, error: null }));
     for (const { id } of STORE_LABELS) {
       void window.api
         .storeStatus(id)
@@ -72,46 +87,26 @@ export default function App(): JSX.Element {
     };
   }, [refresh, notify]);
 
-  const syncSteam = async () => {
-    setSteamSyncing(true);
+  const syncAll = async () => {
+    setSyncingAll(true);
     try {
-      const res = await window.api.steamScan();
-      setSteam((s) => (s ? { ...s, gamesCount: res.total } : s));
+      const res = await window.api.providersSyncAll();
       notify(
-        res.inserted > 0
-          ? `Steam: ${res.inserted} jogos novos (${res.total} no total)`
-          : `Steam: ${res.total} jogos sincronizados`
+        res.totalInserted > 0
+          ? `Sync completo: ${res.totalInserted} jogos novos (${res.totalScanned} no total)`
+          : `Sync completo: ${res.totalScanned} jogos verificados`
       );
       await refresh();
     } catch (err) {
       notify(err instanceof Error ? err.message : String(err), 'error');
     } finally {
-      setSteamSyncing(false);
-    }
-  };
-
-  const syncStore = async (id: StoreId) => {
-    setStoreSyncing((prev) => ({ ...prev, [id]: true }));
-    try {
-      const res = await window.api.storeScan(id);
-      setStores((prev) => {
-        const cur = prev[id];
-        return { ...prev, [id]: cur ? { ...cur, gamesCount: res.total } : cur };
-      });
-      notify(
-        res.inserted > 0
-          ? `${STORE_LABELS.find((s) => s.id === id)?.label}: ${res.inserted} jogos novos`
-          : `${STORE_LABELS.find((s) => s.id === id)?.label}: ${res.total} sincronizados`
-      );
-      await refresh();
-    } catch (err) {
-      notify(err instanceof Error ? err.message : String(err), 'error');
-    } finally {
-      setStoreSyncing((prev) => ({ ...prev, [id]: false }));
+      setSyncingAll(false);
     }
   };
 
   const cols = Math.max(1, Math.floor((window.innerWidth - PADDING * 2) / (CARD_W + GAP)));
+
+  const visibleGames = filter === 'all' ? games : games.filter((g) => g.platform === filter);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -123,24 +118,24 @@ export default function App(): JSX.Element {
       }
       if (e.key === 'ArrowRight') {
         e.preventDefault();
-        setSelected((i) => Math.min(i + 1, games.length - 1));
+        setSelected((i) => Math.min(i + 1, visibleGames.length - 1));
       } else if (e.key === 'ArrowLeft') {
         e.preventDefault();
         setSelected((i) => Math.max(i - 1, 0));
       } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelected((i) => Math.min(i + cols, games.length - 1));
+        setSelected((i) => Math.min(i + cols, visibleGames.length - 1));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSelected((i) => Math.max(i - cols, 0));
-      } else if (e.key === 'Enter' && games.length > 0) {
+      } else if (e.key === 'Enter' && visibleGames.length > 0) {
         e.preventDefault();
-        setView({ kind: 'detail', gameId: games[selected].id });
+        setView({ kind: 'detail', gameId: visibleGames[selected].id });
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [view, games, selected, cols]);
+  }, [view, visibleGames, selected, cols]);
 
   const save = async (input: CreateGameInput) => {
     if (view.kind !== 'form') return;
@@ -207,21 +202,18 @@ export default function App(): JSX.Element {
         <div className="header__actions">
           <button
             type="button"
-            disabled={!steam?.available || steamSyncing}
-            onClick={() => void syncSteam()}
+            disabled={syncingAll}
+            onClick={() => void syncAll()}
+            title="Sincroniza Steam, Epic, GOG e Amazon de uma vez"
           >
-            {steamSyncing ? 'Sincronizando…' : 'Sync Steam'}
+            {syncingAll ? 'Sincronizando…' : 'Sync tudo'}
           </button>
-          {STORE_LABELS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              disabled={!stores[id]?.available || storeSyncing[id]}
-              onClick={() => void syncStore(id)}
-            >
-              {storeSyncing[id] ? 'Sincronizando…' : `Sync ${label}`}
-            </button>
-          ))}
+          <button type="button" onClick={() => setView({ kind: 'providers' })}>
+            Providers
+          </button>
+          <button type="button" onClick={() => setView({ kind: 'about' })}>
+            Sobre
+          </button>
           <button
             type="button"
             className="primary"
@@ -232,17 +224,47 @@ export default function App(): JSX.Element {
         </div>
       </header>
 
-      {games.length === 0 ? (
-        <section className="empty">
-          <h2>Biblioteca vazia</h2>
-          <p>Adicione o primeiro jogo (.exe) para começar.</p>
-          <button type="button" className="primary" onClick={() => setView({ kind: 'form', gameId: null })}>
-            Adicionar jogo
+      <div className="filters" role="tablist" aria-label="Filtrar por plataforma">
+        {FILTER_OPTIONS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={filter === id}
+            className={`filter-chip ${filter === id ? 'filter-chip--active' : ''}`}
+            onClick={() => {
+              setFilter(id);
+              setSelected(0);
+            }}
+          >
+            {label}
+            <span className="filter-chip__count">
+              {id === 'all' ? games.length : games.filter((g) => g.platform === id).length}
+            </span>
           </button>
+        ))}
+      </div>
+
+      {visibleGames.length === 0 ? (
+        <section className="empty">
+          {games.length === 0 ? (
+            <>
+              <h2>Biblioteca vazia</h2>
+              <p>Adicione o primeiro jogo (.exe) para começar.</p>
+              <button type="button" className="primary" onClick={() => setView({ kind: 'form', gameId: null })}>
+                Adicionar jogo
+              </button>
+            </>
+          ) : (
+            <>
+              <h2>Nenhum jogo nesta plataforma</h2>
+              <p>Sincronize a biblioteca ou troque o filtro.</p>
+            </>
+          )}
         </section>
       ) : (
         <section className="grid" role="grid">
-          {games.map((game, i) => (
+          {visibleGames.map((game, i) => (
             <GameCard
               key={game.id}
               game={game}
@@ -275,6 +297,10 @@ export default function App(): JSX.Element {
           onSave={save}
         />
       )}
+
+      {view.kind === 'providers' && <ProvidersModal onClose={() => setView({ kind: 'library' })} />}
+
+      {view.kind === 'about' && <AboutModal onClose={() => setView({ kind: 'library' })} />}
 
       <Toast message={toast?.message ?? ''} kind={toast?.kind ?? 'ok'} />
     </main>

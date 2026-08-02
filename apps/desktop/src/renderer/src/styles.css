@@ -72,6 +72,38 @@ body {
   margin-left: auto;
 }
 
+/* Filtros de plataforma */
+.filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.filter-chip--active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.filter-chip__count {
+  font-size: 0.7rem;
+  color: var(--muted);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
 .card__badge {
   position: absolute;
   top: 8px;
@@ -336,6 +368,101 @@ button:disabled {
 .mono {
   font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
   font-size: 0.82rem;
+}
+
+/* Providers */
+.modal--providers,
+.modal--about {
+  width: min(760px, 94vw);
+}
+
+.providers__actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.providers__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.provider-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #0d1016;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.provider-card--ok {
+  border-color: rgba(34, 197, 94, 0.45);
+}
+
+.provider-card--muted {
+  opacity: 0.75;
+}
+
+.provider-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-card__header strong {
+  font-size: 1rem;
+}
+
+.provider-card__meta {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+
+.provider-card__meta dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.provider-card__meta dd {
+  margin: 1px 0 0;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.provider-card__error dd {
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+.provider-card__actions {
+  margin-top: auto;
+}
+
+/* About */
+.about__subtitle {
+  margin: 16px 0 6px;
+  font-size: 0.95rem;
+}
+
+.about__list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+}
+
+.about__list a {
+  color: var(--accent);
+  word-break: break-all;
 }
 
 footer.hint {

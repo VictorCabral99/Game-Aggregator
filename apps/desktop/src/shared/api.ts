@@ -54,6 +54,8 @@ export interface SteamStatus {
   available: boolean;
   path: string | null;
   gamesCount: number;
+  lastScanAt: string | null;
+  error: string | null;
 }
 
 export interface SteamScanResult {
@@ -70,11 +72,39 @@ export interface StoreStatus {
   available: boolean;
   version: string | null;
   gamesCount: number;
+  path: string | null;
+  lastScanAt: string | null;
+  error: string | null;
 }
 
 export interface StoreScanResult {
   total: number;
   inserted: number;
+}
+
+/** Status unificado de qualquer provider (Steam + sidecars). */
+export interface ProviderStatus {
+  id: Game['platform'];
+  displayName: string;
+  available: boolean;
+  version: string | null;
+  gamesCount: number;
+  path: string | null;
+  lastScanAt: string | null;
+  error: string | null;
+}
+
+/** Resultado do sync all por provider. */
+export interface SyncAllResult {
+  totalScanned: number;
+  totalInserted: number;
+  results: Array<{
+    id: Game['platform'];
+    ok: boolean;
+    total: number;
+    inserted: number;
+    error?: string;
+  }>;
 }
 
 export interface DesktopApi {
@@ -94,4 +124,6 @@ export interface DesktopApi {
   steamSetPath(path: string): Promise<string | null>;
   storeStatus(id: StoreId): Promise<StoreStatus>;
   storeScan(id: StoreId): Promise<StoreScanResult>;
+  providersList(): Promise<ProviderStatus[]>;
+  providersSyncAll(): Promise<SyncAllResult>;
 }
