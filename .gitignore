@@ -1,6 +1,6 @@
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.js
 
 # testing
@@ -9,6 +9,14 @@
 # next.js
 /.next/
 /out/
+
+# electron desktop
+/apps/desktop/out/
+/apps/desktop/dist/
+/apps/desktop/resources/bin/*.exe
+
+# build outputs (packages)
+**/dist/
 
 # production
 /build

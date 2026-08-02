@@ -138,7 +138,7 @@ export class EpicAPI {
     const locale = process.env.EPIC_LOCALE || 'pt-BR';
     const country = process.env.EPIC_COUNTRY || 'BR';
 
-    for (const [namespace, ids] of byNamespace) {
+    for (const [namespace, ids] of Array.from(byNamespace)) {
       // Skip Unreal Engine assets
       if (namespace === 'ue') continue;
 

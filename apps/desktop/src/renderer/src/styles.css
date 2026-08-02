@@ -1,0 +1,134 @@
+:root {
+  --bg: #0f1115;
+  --panel: #161a21;
+  --border: #242b36;
+  --text: #e8ecf1;
+  --muted: #8b95a5;
+  --accent: #3b82f6;
+  --danger: #ef4444;
+  --ok: #22c55e;
+  font-size: 16px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.shell {
+  min-height: 100%;
+  padding: 40px clamp(16px, 5vw, 64px);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.shell__header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.shell__header h1 {
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+.badge {
+  font-size: 0.8rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  max-width: 720px;
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 1.05rem;
+}
+
+.panel p {
+  color: var(--muted);
+  margin: 0 0 16px;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+button {
+  font: inherit;
+  padding: 10px 18px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #1d232c;
+  color: var(--text);
+  cursor: pointer;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+}
+
+.health {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.health dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.health dd {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.panel--logs ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;
+  font-size: 0.8rem;
+  color: var(--muted);
+  max-height: 240px;
+  overflow: auto;
+}
+
+.log--error {
+  color: var(--danger);
+}

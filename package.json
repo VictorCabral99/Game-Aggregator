@@ -2,11 +2,19 @@
   "name": "game-aggregator",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "dev:desktop": "npm run build -w @gagg/core && npm run dev -w @gagg/desktop",
+    "build:desktop": "npm run build -w @gagg/core && npm run build -w @gagg/desktop",
+    "typecheck": "npm run typecheck -w @gagg/desktop && npm run typecheck -w @gagg/core",
+    "smoke:sidecars": "node tools/scripts/smoke-sidecars.mjs"
   },
   "dependencies": {
     "next": "14.2.5",
