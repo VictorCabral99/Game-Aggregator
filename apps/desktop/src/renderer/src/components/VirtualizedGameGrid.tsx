@@ -1,6 +1,6 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { Game } from '../../../shared/api';
+import type { Game, RatingsSummary } from '../../../shared/api';
 import GameCard from './GameCard';
 
 interface Props {
@@ -8,6 +8,7 @@ interface Props {
   cols: number;
   selected: number;
   scores: Record<string, number | null | undefined>;
+  ratings?: Record<string, RatingsSummary | null>;
   hideScores: boolean;
   cardHeight?: number;
   gap?: number;
@@ -21,6 +22,7 @@ export default function VirtualizedGameGrid({
   cols,
   selected,
   scores,
+  ratings,
   hideScores,
   cardHeight = 280,
   gap = 16,
@@ -38,6 +40,19 @@ export default function VirtualizedGameGrid({
     estimateSize: () => rowSize,
     overscan: 4,
   });
+
+  // Mantém o card selecionado visível (controle/teclado) — scroll no próprio grid
+  useEffect(() => {
+    if (selected < 0 || games.length === 0) return;
+    const row = Math.floor(selected / safeCols);
+    const el = parentRef.current;
+    if (el) {
+      const top = row * rowSize;
+      const target = Math.max(0, top - el.clientHeight / 2 + rowSize / 2);
+      el.scrollTop = target;
+    }
+    rowVirtualizer.scrollToIndex(row, { align: 'center' });
+  }, [selected, safeCols, games.length, rowSize, rowVirtualizer]);
 
   return (
     <div ref={parentRef} className="grid-virtual" role="grid" aria-rowcount={rowCount}>
@@ -67,6 +82,7 @@ export default function VirtualizedGameGrid({
                     game={game}
                     selected={index === selected}
                     score={scores[game.id]}
+                    ratingSummary={ratings?.[game.id]}
                     hideScore={hideScores}
                     onSelect={() => onSelect(index)}
                     onOpen={() => onOpen(game.id)}

@@ -174,6 +174,19 @@ export class AuthRepository {
     return row?.id ?? null;
   }
 
+  /** Último usuário com conta Google (para restaurar sessão). */
+  getLatestGoogleUser(): User | null {
+    const row = this.db
+      .prepare(
+        `SELECT u.* FROM users u
+         INNER JOIN accounts a ON a.user_id = u.id AND a.provider = 'google'
+         ORDER BY a.updated_at DESC
+         LIMIT 1`
+      )
+      .get() as UserRow | undefined;
+    return row ? mapUser(row) : null;
+  }
+
   createUser(input: {
     id: string;
     email: string;

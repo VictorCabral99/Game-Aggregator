@@ -1,10 +1,22 @@
-import { app, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';
 import { getSetting, initDatabase, setSetting } from '../db';
 import { coversDir } from './cover';
 import type { UpdateCheckResult } from '../../shared/api';
+
+function windowFromEvent(event: IpcMainInvokeEvent): BrowserWindow | null {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  return win && !win.isDestroyed() ? win : null;
+}
+
+export function applyWindowFullscreen(win: BrowserWindow | null, on: boolean): boolean {
+  if (!win) return false;
+  win.setFullScreen(on);
+  setSetting('ui.fullscreen', on ? '1' : '0');
+  return win.isFullScreen();
+}
 
 let updaterConfigured = false;
 
@@ -118,6 +130,18 @@ export function registerSystemHandlers(): void {
         message: err instanceof Error ? err.message : String(err),
       };
     }
+  });
+
+  ipcMain.handle('window:is-fullscreen', (event) => windowFromEvent(event)?.isFullScreen() ?? false);
+
+  ipcMain.handle('window:set-fullscreen', (event, on: boolean) => {
+    return applyWindowFullscreen(windowFromEvent(event), Boolean(on));
+  });
+
+  ipcMain.handle('window:toggle-fullscreen', (event) => {
+    const win = windowFromEvent(event);
+    if (!win) return false;
+    return applyWindowFullscreen(win, !win.isFullScreen());
   });
 }
 

@@ -135,9 +135,16 @@ function defaultFolderSetting(consoleId: string): string {
 
 export async function listConsoles(): Promise<ConsoleView[]> {
   const consoles = await getConsoles();
+  const familyOrder = { nintendo: 0, sony: 1, sega: 2, other: 3 } as const;
+  const sorted = [...consoles].sort((a, b) => {
+    const fa = familyOrder[a.family ?? 'other'];
+    const fb = familyOrder[b.family ?? 'other'];
+    if (fa !== fb) return fa - fb;
+    return a.name.localeCompare(b.name);
+  });
   const repo = getLibraryRepository();
   const views: ConsoleView[] = [];
-  for (const c of consoles) {
+  for (const c of sorted) {
     const activeEmulator = activeEmulatorSetting(c.id) || c.defaultEmulator;
     const defaultFolder = defaultFolderSetting(c.id) || c.defaultFolder;
     const emulatorOptions = await Promise.all(c.emulatorOptions.map(emulatorViewFor));
@@ -174,6 +181,8 @@ export interface RetroSetupStatus {
   emulatorsRoot: string;
   romsConfigured: boolean;
   emulatorsDetected: number;
+  lastScanFound?: number;
+  lastScanAdded?: number;
 }
 
 export function getRetroSetup(): RetroSetupStatus {
@@ -192,8 +201,67 @@ export function getRetroSetup(): RetroSetupStatus {
 }
 
 /**
+ * Pastas do console sob a raiz (aliases EmulationStation: nes/, psx/, n64/…).
+ * Nunca usa a raiz inteira — cada sistema só olha suas subpastas.
+ */
+async function resolveConsoleFolders(root: string, console: ConsoleDef): Promise<string[]> {
+  const aliases = [
+    console.id,
+    console.shortName,
+    ...(console.folderAliases ?? []),
+  ];
+  const wanted = new Set(
+    aliases
+      .map((a) => a.trim().toLowerCase())
+      .filter(Boolean)
+      .map((a) => a.replace(/\s+/g, ''))
+  );
+  // também aceita alias com espaços (ex.: "wii u") vs pasta "wiiu"
+  for (const a of aliases) {
+    const raw = a.trim().toLowerCase();
+    if (raw) wanted.add(raw);
+  }
+
+  const found: string[] = [];
+  const seen = new Set<string>();
+
+  const push = (full: string) => {
+    const key = full.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    found.push(full);
+  };
+
+  for (const alias of aliases) {
+    const direct = path.join(root, alias);
+    try {
+      await fs.access(direct);
+      push(direct);
+    } catch {
+      // next
+    }
+  }
+
+  try {
+    const entries = await fs.readdir(root, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || isHiddenEntry(entry.name)) continue;
+      const name = entry.name.toLowerCase();
+      const compact = name.replace(/\s+/g, '');
+      if (wanted.has(name) || wanted.has(compact)) {
+        push(path.join(root, entry.name));
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return found;
+}
+
+/**
  * Pasta raiz de ROMs (onboarding): aplica a todos os consoles.
- * Prefer subpasta snes/gba/… se existir; senão a própria raiz (scan por extensão).
+ * Prefer subpasta snes/gba/… (e aliases) se existir; senão deixa vazio (não escaneia a raiz).
  */
 export async function setRomsRoot(folder: string): Promise<RetroSetupStatus> {
   const trimmed = folder.trim();
@@ -201,24 +269,70 @@ export async function setRomsRoot(folder: string): Promise<RetroSetupStatus> {
   if (trimmed) {
     const consoles = await getConsoles();
     for (const c of consoles) {
-      const byId = path.join(trimmed, c.id);
-      const byShort = path.join(trimmed, c.shortName);
-      let chosen = trimmed;
-      try {
-        await fs.access(byId);
-        chosen = byId;
-      } catch {
-        try {
-          await fs.access(byShort);
-          chosen = byShort;
-        } catch {
-          chosen = trimmed;
-        }
-      }
-      setSetting(`console.${c.id}.defaultFolder`, chosen);
+      const folders = await resolveConsoleFolders(trimmed, c);
+      setSetting(`console.${c.id}.defaultFolder`, folders[0] ?? '');
+      setSetting(`console.${c.id}.extraFolders`, JSON.stringify(folders.slice(1)));
+    }
+  } else {
+    const consoles = await getConsoles();
+    for (const c of consoles) {
+      setSetting(`console.${c.id}.defaultFolder`, '');
+      setSetting(`console.${c.id}.extraFolders`, '[]');
     }
   }
   return getRetroSetup();
+}
+
+function extraFoldersFor(consoleId: string): string[] {
+  try {
+    const raw = getSetting(`console.${consoleId}.extraFolders`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string' && !!x) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function foldersForConsole(consoleId: string): Promise<string[]> {
+  const root = getSetting('emulation.romsRoot')?.trim() ?? '';
+  const consoles = await getConsoles();
+  const def = consoles.find((c) => c.id === consoleId);
+  if (root && def) {
+    const resolved = await resolveConsoleFolders(root, def);
+    if (resolved.length > 0) return resolved;
+  }
+  const primary = defaultFolderSetting(consoleId) || def?.defaultFolder || '';
+  const extras = extraFoldersFor(consoleId);
+  return [primary, ...extras].filter(Boolean);
+}
+
+/** Escaneia todos os consoles com pasta configurada / aliases sob romsRoot. */
+export async function scanAllConsoles(
+  onProgress?: (consoleId: string, scanned: number, total: number) => void
+): Promise<{ found: number; added: number }> {
+  const root = getSetting('emulation.romsRoot')?.trim() ?? '';
+  // Re-resolve aliases se a raiz mudou ou o catálogo cresceu
+  if (root) {
+    const consoles = await getConsoles();
+    for (const c of consoles) {
+      const folders = await resolveConsoleFolders(root, c);
+      setSetting(`console.${c.id}.defaultFolder`, folders[0] ?? '');
+      setSetting(`console.${c.id}.extraFolders`, JSON.stringify(folders.slice(1)));
+    }
+  }
+
+  const consoles = await getConsoles();
+  let found = 0;
+  let added = 0;
+  for (const c of consoles) {
+    const res = await scanConsoleFolder(c.id, (scanned, total) => {
+      onProgress?.(c.id, scanned, total || scanned);
+    });
+    found += res.found;
+    added += res.added;
+  }
+  return { found, added };
 }
 
 /** Pasta de emuladores: detecta exes conhecidos e grava emulator.<id>.path. */
@@ -292,7 +406,7 @@ async function walkRoms(
   onProgress?: (count: number) => void,
   depth = 0
 ): Promise<void> {
-  if (depth > 5) return;
+  if (depth > 8) return;
   let entries;
   try {
     entries = await fs.readdir(folder, { withFileTypes: true });
@@ -322,11 +436,14 @@ export async function scanConsoleFolder(
   const consoles = await getConsoles();
   const console = consoles.find((c) => c.id === consoleId);
   if (!console) throw new Error(`Console desconhecido: ${consoleId}`);
-  const folder = defaultFolderSetting(consoleId) || console.defaultFolder;
-  if (!folder) return { found: 0, added: 0 };
+
+  const folders = await foldersForConsole(consoleId);
+  if (folders.length === 0) return { found: 0, added: 0 };
 
   const roms: string[] = [];
-  await walkRoms(folder, console.extensions, roms, () => onProgress?.(roms.length, 0));
+  for (const folder of folders) {
+    await walkRoms(folder, console.extensions, roms, () => onProgress?.(roms.length, 0));
+  }
 
   const repo = getLibraryRepository();
   const existing = new Set(

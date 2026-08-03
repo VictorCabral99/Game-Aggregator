@@ -151,8 +151,7 @@ export class LibraryRepository {
     return rows.map(mapSource);
   }
 
-  private mapGame(row: CanonicalRow): Game {
-    const sources = this.sourcesFor(row.id);
+  private mapGameWithSources(row: CanonicalRow, sources: GameSource[]): Game {
     let genres: string[] = [];
     try {
       genres = row.genres_json ? (JSON.parse(row.genres_json) as string[]) : [];
@@ -178,11 +177,33 @@ export class LibraryRepository {
     };
   }
 
+  private mapGame(row: CanonicalRow): Game {
+    return this.mapGameWithSources(row, this.sourcesFor(row.id));
+  }
+
+  /** Lista completa: 2 queries (jogos + sources), sem N+1. */
   list(): Game[] {
     const rows = this.db
-      .prepare(`SELECT * FROM canonical_games ORDER BY title COLLATE NOCASE ASC`)
+      .prepare(
+        `SELECT id, slug, title, normalized_title, cover_path, cover_url, notes, summary,
+                genres_json, launch_args, is_remote, created_at, updated_at
+         FROM canonical_games
+         ORDER BY title COLLATE NOCASE ASC`
+      )
       .all() as unknown as CanonicalRow[];
-    return rows.map((r) => this.mapGame(r));
+
+    const sourceRows = this.db
+      .prepare(`SELECT * FROM game_sources ORDER BY platform ASC`)
+      .all() as unknown as SourceRow[];
+
+    const byGame = new Map<string, GameSource[]>();
+    for (const row of sourceRows) {
+      const list = byGame.get(row.game_id) ?? [];
+      list.push(mapSource(row));
+      byGame.set(row.game_id, list);
+    }
+
+    return rows.map((r) => this.mapGameWithSources(r, byGame.get(r.id) ?? []));
   }
 
   listByPlatform(platform: GamePlatform): Game[] {

@@ -5,6 +5,7 @@ import {
   launchRom,
   listConsoles,
   mapRomFile,
+  scanAllConsoles,
   scanConsoleFolder,
   setActiveEmulator,
   setDefaultFolder,
@@ -12,6 +13,7 @@ import {
   setRomsRoot,
 } from '../emulation';
 import { getLibraryRepository } from '../db';
+import { downloadMissingRetroCovers } from './cover';
 
 export function registerEmulationHandlers(): void {
   ipcMain.handle('emulation:list-consoles', () => listConsoles());
@@ -33,13 +35,20 @@ export function registerEmulationHandlers(): void {
 
   ipcMain.handle('emulation:setup-get', () => getRetroSetup());
 
-  ipcMain.handle('emulation:pick-roms-root', async () => {
+  ipcMain.handle('emulation:pick-roms-root', async (event) => {
     const result = await dialog.showOpenDialog({
       title: 'Pasta de ROMs',
       properties: ['openDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
-    return setRomsRoot(result.filePaths[0]);
+    const setup = await setRomsRoot(result.filePaths[0]);
+    const scan = await scanAllConsoles((consoleId, scanned, total) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('emulation:scan-progress', { consoleId, scanned, total });
+      }
+    });
+    // Capas/notas: enrich em fases no renderer (após trazer os jogos)
+    return { ...setup, lastScanFound: scan.found, lastScanAdded: scan.added };
   });
 
   ipcMain.handle('emulation:pick-emulators-root', async () => {
@@ -52,24 +61,17 @@ export function registerEmulationHandlers(): void {
   });
 
   ipcMain.handle('emulation:scan-all', async (event) => {
-    const consoles = await listConsoles();
-    let found = 0;
-    let added = 0;
-    for (const c of consoles) {
-      if (!c.defaultFolder) continue;
-      const res = await scanConsoleFolder(c.id, (scanned, total) => {
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('emulation:scan-progress', {
-            consoleId: c.id,
-            scanned,
-            total: total || scanned,
-          });
-        }
-      });
-      found += res.found;
-      added += res.added;
-    }
-    return { found, added };
+    const scan = await scanAllConsoles((consoleId, scanned, total) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('emulation:scan-progress', {
+          consoleId,
+          scanned,
+          total: total || scanned,
+        });
+      }
+    });
+    // Capas ficam para o enrich (fase capas → notas); scan só traz os jogos
+    return scan;
   });
 
   ipcMain.handle('emulation:scan', async (event, consoleId: string) => {
@@ -92,7 +94,9 @@ export function registerEmulationHandlers(): void {
     if (result.canceled || result.filePaths.length === 0) return null;
     const folder = result.filePaths[0];
     await setDefaultFolder(consoleId, folder);
-    return { folder, scan: await scanConsoleFolder(consoleId) };
+    const scan = await scanConsoleFolder(consoleId);
+    void downloadMissingRetroCovers().catch(() => undefined);
+    return { folder, scan };
   });
 
   ipcMain.handle('emulation:map-rom', async (_event, args: { consoleId: string }) => {
@@ -103,6 +107,7 @@ export function registerEmulationHandlers(): void {
     });
     if (result.canceled || result.filePaths.length === 0) return null;
     await mapRomFile(args.consoleId, result.filePaths[0]);
+    void downloadMissingRetroCovers().catch(() => undefined);
     return { romPath: result.filePaths[0] };
   });
 

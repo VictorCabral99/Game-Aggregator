@@ -1,4 +1,4 @@
-import { app, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import type { DbHealth, ProfileId } from '../../shared/api';
@@ -8,6 +8,11 @@ import { LibraryRepository } from './games';
 import { RatingsRepository } from './ratings';
 import { WishlistRepository } from './wishlist';
 import { AuthRepository } from './auth';
+
+function setWindowFullscreen(event: Electron.IpcMainInvokeEvent, on: boolean): void {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (win && !win.isDestroyed()) win.setFullScreen(on);
+}
 
 let db: DatabaseSync | null = null;
 let dbPath = '';
@@ -84,9 +89,12 @@ export function registerDbHandlers(): void {
     return getSetting(key);
   });
 
-  ipcMain.handle('settings:set', (_event, args: { key: string; value: string }): void => {
+  ipcMain.handle('settings:set', (event, args: { key: string; value: string }): void => {
     if (!args?.key) throw new Error('key é obrigatório');
     setSetting(args.key, String(args.value ?? ''));
+    if (args.key === 'ui.fullscreen') {
+      setWindowFullscreen(event, args.value === '1');
+    }
   });
 
   // Profiles (P8-01/02)
@@ -95,13 +103,14 @@ export function registerDbHandlers(): void {
     return isProfileId(raw) ? raw : 'desk';
   });
 
-  ipcMain.handle('profile:set', (_event, profile: ProfileId) => {
+  ipcMain.handle('profile:set', (event, profile: ProfileId) => {
     if (!isProfileId(profile)) throw new Error('Perfil inválido');
     setSetting('ui.profile', profile);
     const boot = profileBootSettings(profile);
     for (const [key, value] of Object.entries(boot)) {
       setSetting(key, value);
     }
+    setWindowFullscreen(event, (getSetting('ui.fullscreen') ?? '0') === '1');
   });
 
   ipcMain.handle('profile:get-tokens', (_event, profile: ProfileId) => {

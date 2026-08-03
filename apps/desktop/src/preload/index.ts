@@ -75,6 +75,14 @@ const api: DesktopApi = {
   ratingsForGame: (gameId: string) => ipcRenderer.invoke('ratings:for-game', gameId),
   ratingsForLibrary: () => ipcRenderer.invoke('ratings:for-library'),
   ratingsSyncAll: () => ipcRenderer.invoke('ratings:sync-all'),
+  ratingsEnrichStream: (opts?: { gameIds?: string[]; force?: boolean; maxGames?: number }) =>
+    ipcRenderer.invoke('ratings:enrich-stream', opts),
+  onLibraryEnrichProgress: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, data: import('../shared/api').EnrichEvent) =>
+      cb(data);
+    ipcRenderer.on('library:enrich-progress', listener);
+    return () => ipcRenderer.removeListener('library:enrich-progress', listener);
+  },
   ratingsSettings: () => ipcRenderer.invoke('ratings:settings'),
   wishlistList: () => ipcRenderer.invoke('wishlist:list'),
   wishlistAdd: (input: WishlistAddInput) => ipcRenderer.invoke('wishlist:add', input),
@@ -104,6 +112,9 @@ const api: DesktopApi = {
   telemetrySet: (enabled: boolean) => ipcRenderer.invoke('telemetry:set', enabled),
   updaterCheck: () => ipcRenderer.invoke('updater:check'),
   updaterDownload: () => ipcRenderer.invoke('updater:download'),
+  windowIsFullscreen: () => ipcRenderer.invoke('window:is-fullscreen'),
+  windowSetFullscreen: (on: boolean) => ipcRenderer.invoke('window:set-fullscreen', on),
+  windowToggleFullscreen: () => ipcRenderer.invoke('window:toggle-fullscreen'),
   // Auth
   authGetCurrentUser: () => ipcRenderer.invoke('auth:get-current-user'),
   authGetGoogleAuthUrl: () => ipcRenderer.invoke('auth:get-google-auth-url'),

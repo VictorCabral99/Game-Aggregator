@@ -42,6 +42,8 @@ type View =
   | { kind: 'settings' }
   | { kind: 'accounts' };
 
+type AppSection = 'library' | 'stores' | 'wishlist' | 'retro';
+
 type PlatformFilter = 'all' | GamePlatform;
 
 interface ToastState {
@@ -69,6 +71,10 @@ export default function App(): JSX.Element {
   const [games, setGames] = useState<Game[]>([]);
   const [view, setView] = useState<View>({ kind: 'library' });
   const [selected, setSelected] = useState(0);
+  /** Zona de foco do controle: grade, filtros ou sidebar. */
+  const [padZone, setPadZone] = useState<'grid' | 'filters' | 'sidebar'>('grid');
+  const [padFilterIdx, setPadFilterIdx] = useState(0);
+  const [padSidebarIdx, setPadSidebarIdx] = useState(0);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [steam, setSteam] = useState<SteamStatus | null>(null);
   const [stores, setStores] = useState<Partial<Record<StoreId, StoreStatus | null>>>({});
@@ -77,7 +83,6 @@ export default function App(): JSX.Element {
   const [installedOnly, setInstalledOnly] = useState(false);
   const [query, setQuery] = useState('');
   const [syncingAll, setSyncingAll] = useState(false);
-  const [downloadingCovers, setDownloadingCovers] = useState(false);
   const [tvMode, setTvMode] = useState(false);
   const [profile, setProfile] = useState<ProfileId>('desk');
   const [profileTokens, setProfileTokens] = useState<ProfileTokens>({
@@ -91,30 +96,30 @@ export default function App(): JSX.Element {
   });
   const [ratings, setRatings] = useState<Record<string, RatingsSummary | null>>({});
   const [syncingRatings, setSyncingRatings] = useState(false);
-  const [sortBy, setSortBy] = useState<'name' | 'rating' | 'recent'>('name');
+  const [sortBy, setSortBy] = useState<'name' | 'rating' | 'rawg' | 'metacritic' | 'steam' | 'recent'>(
+    'name'
+  );
+  const [enrichProgress, setEnrichProgress] = useState<{
+    index: number;
+    total: number;
+    title: string;
+  } | null>(null);
   const [minRating, setMinRating] = useState(0);
   const [hideNotes, setHideNotes] = useState(false);
   const [user, setUser] = useState<{ id: string; email: string; name: string | null; image: string | null } | null>(null);
-  const [showStoreConnect, setShowStoreConnect] = useState(false);
+  const [section, setSection] = useState<AppSection>('library');
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [ready, setReady] = useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const headerMenuRef = useRef<HTMLDivElement | null>(null);
+  const enrichRunning = useRef(false);
 
   const refreshRatings = useCallback(async () => {
     const map = await window.api.ratingsForLibrary();
     setRatings(map);
   }, []);
-
-  const ratingsStaleDays = useCallback(() => {
-    let stale = 0;
-    for (const summary of Object.values(ratings)) {
-      if (!summary?.updatedAt) continue;
-      const days = (Date.now() - new Date(summary.updatedAt).getTime()) / 86400000;
-      if (days > 7) stale += 1;
-    }
-    return stale;
-  }, [ratings]);
 
   const notify = useCallback((message: string, kind: 'ok' | 'error' = 'ok') => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -131,11 +136,39 @@ export default function App(): JSX.Element {
     }
   }, []);
 
+  const logout = useCallback(async () => {
+    try {
+      await window.api.authLogout();
+    } catch {
+      // ignore
+    }
+    setUser(null);
+    setSection('library');
+  }, []);
+
+  const goSection = useCallback((next: AppSection) => {
+    setSection(next);
+    if (next === 'library') setView({ kind: 'library' });
+  }, []);
+
   const refresh = useCallback(async () => {
     const list = await window.api.libraryList();
     setGames(list);
     setSelected((prev) => Math.min(prev, Math.max(list.length - 1, 0)));
   }, []);
+
+  const finishStoresSetup = useCallback(() => {
+    void window.api.settingsSet('onboarding.stores', '1');
+    void window.api.settingsSet('onboarding.done', '1');
+    setSection('library');
+    void refresh().then(() => {
+      void window.api.providersSyncAll().then(() => refresh()).catch(() => undefined);
+      void window.api.ratingsEnrichStream({}).then(() => {
+        void refreshRatings();
+        void refresh();
+      }).catch(() => undefined);
+    });
+  }, [refresh, refreshRatings]);
 
   useEffect(() => {
     const boot = async () => {
@@ -162,24 +195,12 @@ export default function App(): JSX.Element {
           .catch(() => setStores((prev) => ({ ...prev, [id]: null })));
       }
       void refreshRatings().catch(() => undefined);
+      // Auth restaura sessão; se lojas nunca configuradas, abre a seção Lojas via sidebar
       void checkAuth().catch(() => undefined);
 
-      // P9-02: capas em idle — não bloqueia first paint
-      const deferCovers = () => {
-        void window.api.coversDownloadMissing().catch(() => undefined);
-      };
-      if (typeof requestIdleCallback === 'function') {
-        requestIdleCallback(() => deferCovers(), { timeout: 4000 });
-      } else {
-        setTimeout(deferCovers, 1500);
-      }
-
-      // Pós-login Google: tela de lojas primeiro; depois onboarding Steam legado se ainda marcado
-      const storesDone = await window.api.settingsGet('onboarding.stores').catch(() => null);
       const steamDone = await window.api.settingsGet('onboarding.done').catch(() => null);
-      if (storesDone !== '1') {
-        setShowStoreConnect(true);
-      } else if (steamDone !== '1') {
+      const storesDone = await window.api.settingsGet('onboarding.stores').catch(() => null);
+      if (storesDone === '1' && steamDone !== '1') {
         setShowOnboarding(true);
       }
     };
@@ -237,41 +258,6 @@ export default function App(): JSX.Element {
     document.body.classList.add(`profile-${profile}`);
   }, [tvMode, profile]);
 
-  useGamepadNav({
-    enabled: true,
-    tvMode,
-    onDeviceChange: (device) => {
-      document.body.classList.toggle('gamepad-active', device === 'gamepad');
-    },
-    onAction: (action) => {
-      switch (action) {
-        case 'confirm':
-        case 'open':
-          uiSelect();
-          break;
-        case 'back':
-          uiBack();
-          break;
-        case 'search':
-          searchRef.current?.focus();
-          searchRef.current?.select();
-          break;
-        case 'settings':
-          setView((v) => (v.kind === 'settings' ? { kind: 'library' } : { kind: 'settings' }));
-          break;
-        case 'emulation':
-          setView({ kind: 'emulation' });
-          break;
-        case 'up':
-        case 'down':
-        case 'left':
-        case 'right':
-          uiMove();
-          break;
-      }
-    },
-  });
-
   const syncAll = async () => {
     setSyncingAll(true);
     try {
@@ -282,7 +268,7 @@ export default function App(): JSX.Element {
           : `Sync completo: ${res.totalScanned} jogos verificados`
       );
       await refresh();
-      void downloadCovers();
+      void syncRatings(false, { quiet: true });
     } catch (err) {
       notify(err instanceof Error ? err.message : String(err), 'error');
     } finally {
@@ -290,41 +276,165 @@ export default function App(): JSX.Element {
     }
   };
 
-  const downloadCovers = async () => {
-    setDownloadingCovers(true);
+  const syncRatings = async (force = false, opts?: { quiet?: boolean }) => {
+    if (enrichRunning.current) return;
+    enrichRunning.current = true;
+    setSyncingRatings(true);
+    setEnrichProgress({ index: 0, total: 0, title: 'Preparando…' });
     try {
-      const res = await window.api.coversDownloadMissing();
-      if (res.downloaded > 0) {
-        notify(`Capas baixadas: ${res.downloaded}${res.failed > 0 ? ` (${res.failed} falhas)` : ''}`);
+      const batchSize = opts?.quiet && !force ? 48 : undefined;
+      let totalUpdated = 0;
+      let totalCovers = 0;
+      let totalAttempted = 0;
+      let lastNoKey = false;
+      let batches = 0;
+
+      // quiet: lotes de 48 até esgotar elegíveis (não para no primeiro)
+      while (batches < 250) {
+        batches += 1;
+        const res = await window.api.ratingsEnrichStream({
+          force: force && batches === 1,
+          maxGames: batchSize,
+        });
+        lastNoKey = Boolean(res.noKey);
+        totalUpdated += res.updated;
+        totalCovers += res.covers ?? 0;
+        totalAttempted += res.attempted;
+
+        if (!batchSize) break;
+        if (res.attempted === 0) break;
+        // lote incompleto = não há mais o que processar agora
+        if (res.attempted < batchSize) break;
+        // respira a UI entre lotes
+        await new Promise((r) => setTimeout(r, 200));
       }
-      await refresh();
+
+      if (!opts?.quiet) {
+        if (lastNoKey && totalUpdated === 0 && totalCovers === 0) {
+          notify('Defina a chave RAWG em Configurações para buscar notas', 'error');
+        } else if (totalAttempted > 0) {
+          notify(
+            `Enriquecimento: ${totalUpdated} notas` +
+              (totalCovers ? ` · ${totalCovers} capas retro` : '') +
+              (batches > 1 ? ` · ${batches} lotes` : '')
+          );
+        }
+      }
+      await refreshRatings();
+      if (!opts?.quiet) await refresh();
     } catch (err) {
-      notify(err instanceof Error ? err.message : String(err), 'error');
+      if (!opts?.quiet) notify(err instanceof Error ? err.message : String(err), 'error');
     } finally {
-      setDownloadingCovers(false);
+      enrichRunning.current = false;
+      setSyncingRatings(false);
+      setEnrichProgress(null);
     }
   };
 
-  const syncRatings = async () => {
-    setSyncingRatings(true);
-    try {
-      const res = await window.api.ratingsSyncAll();
-      if (res.noKey) {
-        notify('Defina a chave RAWG em Configurações para buscar notas', 'error');
-      } else if (res.updated > 0) {
-        notify(`Notas atualizadas: ${res.updated} jogos${res.skippedFresh > 0 ? ` (${res.skippedFresh} já frescos)` : ''}`);
-      } else if (res.skippedFresh > 0) {
-        notify(`Notas já frescas (${res.skippedFresh} jogos, TTL 7 dias)`);
-      } else {
-        notify('Nenhuma nota encontrada para a biblioteca atual');
+  // Boot: 1) scan retro → 2) capas retro → 3) notas (via enrich em fases)
+  const autoEnrichDone = useRef(false);
+  useEffect(() => {
+    if (!ready || autoEnrichDone.current) return;
+    autoEnrichDone.current = true;
+
+    const bootPipeline = async () => {
+      try {
+        const setup = await window.api.emulationSetupGet();
+        if (setup.romsConfigured) {
+          setEnrichProgress({ index: 0, total: 0, title: 'Escaneando ROMs…' });
+          await window.api.emulationScanAll();
+          await refresh();
+        }
+      } catch {
+        // sem pasta retro — segue
       }
-      await refreshRatings();
-      await refresh();
-    } catch (err) {
-      notify(err instanceof Error ? err.message : String(err), 'error');
-    } finally {
-      setSyncingRatings(false);
-    }
+      await syncRatings(false, { quiet: true });
+    };
+
+    const t = setTimeout(() => {
+      void bootPipeline();
+    }, 1200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
+
+  useEffect(() => {
+    if (!headerMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) {
+        setHeaderMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHeaderMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [headerMenuOpen]);
+
+  useEffect(() => {
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const pendingRatings: Record<string, RatingsSummary | null> = {};
+    const pendingCovers = new Map<string, string | null>();
+    let latestProgress: { index: number; total: number; title: string } | null = null;
+
+    const flush = () => {
+      flushTimer = null;
+      if (latestProgress) setEnrichProgress(latestProgress);
+      const ratingKeys = Object.keys(pendingRatings);
+      if (ratingKeys.length > 0) {
+        const batch = { ...pendingRatings };
+        for (const k of ratingKeys) delete pendingRatings[k];
+        setRatings((prev) => ({ ...prev, ...batch }));
+      }
+      if (pendingCovers.size > 0) {
+        const covers = new Map(pendingCovers);
+        pendingCovers.clear();
+        setGames((prev) =>
+          prev.map((g) => (covers.has(g.id) ? { ...g, coverPath: covers.get(g.id) ?? null } : g))
+        );
+      }
+    };
+
+    const scheduleFlush = () => {
+      if (flushTimer) return;
+      flushTimer = setTimeout(flush, 280);
+    };
+
+    return window.api.onLibraryEnrichProgress((ev) => {
+      if (ev.type === 'start') {
+        setEnrichProgress({ index: 0, total: ev.total, title: 'Iniciando…' });
+        return;
+      }
+      if (ev.type === 'item') {
+        latestProgress = { index: ev.index, total: ev.total, title: ev.title };
+        pendingRatings[ev.gameId] = ev.summary;
+        if (ev.coverPath) pendingCovers.set(ev.gameId, ev.coverPath);
+        scheduleFlush();
+        return;
+      }
+      if (ev.type === 'done' || ev.type === 'error') {
+        if (flushTimer) {
+          clearTimeout(flushTimer);
+          flush();
+        }
+        setEnrichProgress(null);
+      }
+    });
+  }, []);
+
+  const ratingSourceScore = (
+    summary: RatingsSummary | null | undefined,
+    source: 'rawg' | 'metacritic' | 'steam'
+  ): number => {
+    const row = summary?.sources.find((s) => s.source === source);
+    if (row?.score == null || row.score <= 0) return 0;
+    if (source === 'rawg' && row.score <= 5) return Math.round(row.score * 20 * 10) / 10;
+    return row.score;
   };
 
   const cols = Math.max(1, Math.floor((window.innerWidth - PADDING * 2) / (CARD_W + GAP)));
@@ -351,6 +461,20 @@ export default function App(): JSX.Element {
     const sorted = [...scored];
     if (sortBy === 'rating') {
       sorted.sort((a, b) => (ratings[b.id]?.score ?? 0) - (ratings[a.id]?.score ?? 0));
+    } else if (sortBy === 'rawg') {
+      sorted.sort(
+        (a, b) => ratingSourceScore(ratings[b.id], 'rawg') - ratingSourceScore(ratings[a.id], 'rawg')
+      );
+    } else if (sortBy === 'metacritic') {
+      sorted.sort(
+        (a, b) =>
+          ratingSourceScore(ratings[b.id], 'metacritic') -
+          ratingSourceScore(ratings[a.id], 'metacritic')
+      );
+    } else if (sortBy === 'steam') {
+      sorted.sort(
+        (a, b) => ratingSourceScore(ratings[b.id], 'steam') - ratingSourceScore(ratings[a.id], 'steam')
+      );
     } else if (sortBy === 'recent') {
       sorted.sort((a, b) =>
         (b.preferredSource?.lastPlayedAt ?? '').localeCompare(a.preferredSource?.lastPlayedAt ?? '')
@@ -360,6 +484,14 @@ export default function App(): JSX.Element {
     }
     return sorted;
   }, [games, filter, genreFilter, installedOnly, query, minRating, sortBy, ratings]);
+
+  useEffect(() => {
+    if (visibleGames.length === 0) {
+      setSelected(0);
+      return;
+    }
+    setSelected((i) => Math.min(i, visibleGames.length - 1));
+  }, [visibleGames.length]);
 
   // Shelf "Esquecidos bem avaliados" (P6-08): score ≥ 80 e nunca/raramente jogado.
   const forgottenHighScore = useMemo(() => {
@@ -371,6 +503,11 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'F11') {
+        e.preventDefault();
+        void window.api.windowToggleFullscreen();
+        return;
+      }
       if (view.kind !== 'library') return;
       if (e.key === 'n' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -406,6 +543,183 @@ export default function App(): JSX.Element {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [view, visibleGames, selected, cols]);
+
+  const SIDEBAR_PAD = [
+    { id: 'library' as const, run: () => goSection('library') },
+    { id: 'stores' as const, run: () => goSection('stores') },
+    { id: 'wishlist' as const, run: () => goSection('wishlist') },
+    { id: 'retro' as const, run: () => goSection('retro') },
+    { id: 'settings' as const, run: () => setView({ kind: 'settings' }) },
+  ];
+
+  const FILTER_PAD = [
+    ...FILTER_OPTIONS.map((f) => ({
+      id: f.id,
+      label: f.label,
+      apply: () => {
+        setFilter(f.id);
+        setSelected(0);
+        setPadZone('grid');
+      },
+    })),
+    {
+      id: 'installed',
+      label: 'Instalados',
+      apply: () => {
+        setInstalledOnly((v) => !v);
+        setSelected(0);
+      },
+    },
+    {
+      id: 'rating80',
+      label: 'Nota ≥ 80',
+      apply: () => {
+        setMinRating((v) => (v === 80 ? 0 : 80));
+        setSelected(0);
+      },
+    },
+  ];
+
+  const padNavRef = useRef({
+    selected,
+    visibleGames,
+    cols,
+    view,
+    section,
+    padZone,
+    padFilterIdx,
+    padSidebarIdx,
+    filter,
+    installedOnly,
+    minRating,
+  });
+  padNavRef.current = {
+    selected,
+    visibleGames,
+    cols,
+    view,
+    section,
+    padZone,
+    padFilterIdx,
+    padSidebarIdx,
+    filter,
+    installedOnly,
+    minRating,
+  };
+
+  useGamepadNav({
+    enabled: true,
+    tvMode,
+    onDeviceChange: (device) => {
+      document.body.classList.toggle('gamepad-active', device === 'gamepad');
+    },
+    onAction: (action) => {
+      const n = padNavRef.current;
+      const inLibrary = n.view.kind === 'library' && n.section === 'library';
+
+      if (action === 'back') {
+        uiBack();
+        if (n.view.kind !== 'library') {
+          setView({ kind: 'library' });
+          return;
+        }
+        if (n.padZone !== 'grid') {
+          setPadZone('grid');
+          return;
+        }
+        if (n.section !== 'library') goSection('library');
+        return;
+      }
+
+      if (action === 'search') {
+        goSection('library');
+        setPadZone('grid');
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+      if (action === 'settings') {
+        setView((v) => (v.kind === 'settings' ? { kind: 'library' } : { kind: 'settings' }));
+        return;
+      }
+      if (action === 'emulation') {
+        goSection('retro');
+        return;
+      }
+
+      if (!inLibrary) return;
+
+      // —— Sidebar ——
+      if (n.padZone === 'sidebar') {
+        if (action === 'up') {
+          setPadSidebarIdx((i) => Math.max(0, i - 1));
+          uiMove();
+        } else if (action === 'down') {
+          setPadSidebarIdx((i) => Math.min(SIDEBAR_PAD.length - 1, i + 1));
+          uiMove();
+        } else if (action === 'right') {
+          setPadZone('filters');
+          uiMove();
+        } else if (action === 'confirm' || action === 'open') {
+          uiSelect();
+          SIDEBAR_PAD[n.padSidebarIdx]?.run();
+        }
+        return;
+      }
+
+      // —— Filtros ——
+      if (n.padZone === 'filters') {
+        if (action === 'left') {
+          if (n.padFilterIdx === 0) {
+            setPadZone('sidebar');
+          } else {
+            setPadFilterIdx((i) => Math.max(0, i - 1));
+          }
+          uiMove();
+        } else if (action === 'right') {
+          setPadFilterIdx((i) => Math.min(FILTER_PAD.length - 1, i + 1));
+          uiMove();
+        } else if (action === 'up') {
+          setPadZone('sidebar');
+          uiMove();
+        } else if (action === 'down') {
+          setPadZone('grid');
+          uiMove();
+        } else if (action === 'confirm' || action === 'open') {
+          uiSelect();
+          FILTER_PAD[n.padFilterIdx]?.apply();
+        }
+        return;
+      }
+
+      // —— Grade ——
+      if (action === 'left') {
+        if (n.selected % n.cols === 0) {
+          setPadZone('sidebar');
+        } else {
+          setSelected((i) => Math.max(i - 1, 0));
+        }
+        uiMove();
+      } else if (action === 'right') {
+        setSelected((i) => Math.min(i + 1, Math.max(n.visibleGames.length - 1, 0)));
+        uiMove();
+      } else if (action === 'up') {
+        if (n.selected < n.cols) {
+          setPadZone('filters');
+        } else {
+          setSelected((i) => Math.max(i - n.cols, 0));
+        }
+        uiMove();
+      } else if (action === 'down') {
+        setSelected((i) => Math.min(i + n.cols, Math.max(n.visibleGames.length - 1, 0)));
+        uiMove();
+      } else if (action === 'confirm' || action === 'open') {
+        uiSelect();
+        const game = n.visibleGames[n.selected];
+        if (game) setView({ kind: 'detail', gameId: game.id });
+      }
+    },
+  });
 
   const save = async (input: CreateGameInput) => {
     if (view.kind !== 'form') return;
@@ -471,7 +785,104 @@ export default function App(): JSX.Element {
     view.kind === 'form' && view.gameId ? games.find((g) => g.id === view.gameId) ?? null : null;
 
   return (
-    <main className="shell">
+    <div className={`app-layout ${user ? 'app-layout--authed' : ''}`}>
+      {user && (
+        <nav className="side-nav" aria-label="Navegação principal">
+          <div className="side-nav__brand">
+            <strong>Game Aggregator</strong>
+            <small>{user.name?.split(' ')[0] || user.email}</small>
+          </div>
+          <button
+            type="button"
+            className={`side-nav__item ${section === 'library' ? 'side-nav__item--active' : ''} ${
+              padZone === 'sidebar' && padSidebarIdx === 0 ? 'side-nav__item--focus' : ''
+            }`}
+            onClick={() => goSection('library')}
+          >
+            <span className="side-nav__label">Jogos</span>
+            <span className="side-nav__hint">Biblioteca</span>
+          </button>
+          <button
+            type="button"
+            className={`side-nav__item ${section === 'stores' ? 'side-nav__item--active' : ''} ${
+              padZone === 'sidebar' && padSidebarIdx === 1 ? 'side-nav__item--focus' : ''
+            }`}
+            onClick={() => goSection('stores')}
+          >
+            <span className="side-nav__label">Lojas</span>
+            <span className="side-nav__hint">Conectar fontes</span>
+          </button>
+          <button
+            type="button"
+            className={`side-nav__item ${section === 'wishlist' ? 'side-nav__item--active' : ''} ${
+              padZone === 'sidebar' && padSidebarIdx === 2 ? 'side-nav__item--focus' : ''
+            }`}
+            onClick={() => goSection('wishlist')}
+          >
+            <span className="side-nav__label">Wishlist</span>
+            <span className="side-nav__hint">Promoções</span>
+          </button>
+          <button
+            type="button"
+            className={`side-nav__item ${section === 'retro' ? 'side-nav__item--active' : ''} ${
+              padZone === 'sidebar' && padSidebarIdx === 3 ? 'side-nav__item--focus' : ''
+            }`}
+            onClick={() => goSection('retro')}
+          >
+            <span className="side-nav__label">Retro</span>
+            <span className="side-nav__hint">Consoles e ROMs</span>
+          </button>
+          <div className="side-nav__spacer" />
+          <button
+            type="button"
+            className={`side-nav__item side-nav__item--ghost ${
+              padZone === 'sidebar' && padSidebarIdx === 4 ? 'side-nav__item--focus' : ''
+            }`}
+            onClick={() => setView({ kind: 'settings' })}
+          >
+            <span className="side-nav__label">Configurações</span>
+          </button>
+          <button type="button" className="side-nav__item side-nav__item--ghost" onClick={() => void logout()}>
+            <span className="side-nav__label">Sair</span>
+          </button>
+        </nav>
+      )}
+
+      <main className="shell">
+      {section === 'stores' && user ? (
+        <StoreConnectScreen
+          embedded
+          userName={user.name}
+          onContinue={finishStoresSetup}
+          onLibraryChanged={() => {
+            void refresh();
+            void window.api.ratingsEnrichStream({}).then(() => {
+              void refreshRatings();
+              void refresh();
+            }).catch(() => undefined);
+          }}
+          onOpenEmulation={() => goSection('retro')}
+        />
+      ) : section === 'wishlist' && user ? (
+        <WishlistModal
+          embedded
+          onClose={() => goSection('library')}
+          onAlerts={(alerts) =>
+            notify(
+              alerts.map((a) => `${a.title} — ${a.currentPrice.toFixed(2)} ${a.currency}`).join(' · '),
+              'ok'
+            )
+          }
+        />
+      ) : section === 'retro' && user ? (
+        <EmulationModal
+          embedded
+          onClose={() => goSection('library')}
+          onLaunch={launch}
+          onChanged={() => void refresh()}
+        />
+      ) : (
+        <>
       <header className="shell__header">
         <h1>Game Aggregator Launcher</h1>
         <span className="badge">{games.length} jogos</span>
@@ -491,75 +902,145 @@ export default function App(): JSX.Element {
             </span>
           );
         })}
-        <div className="header__actions">
-          <button
-            type="button"
-            disabled={syncingAll}
-            onClick={() => void syncAll()}
-            title="Sincroniza Steam, Epic, GOG e Amazon de uma vez"
-          >
-            {syncingAll ? 'Sincronizando…' : 'Sync tudo'}
-          </button>
-          <button
-            type="button"
-            disabled={downloadingCovers}
-            onClick={() => void downloadCovers()}
-            title="Baixa capas que ainda não estão no cache local"
-          >
-            {downloadingCovers ? 'Baixando capas…' : 'Baixar capas'}
-          </button>
-          <button
-            type="button"
-            disabled={syncingRatings}
-            onClick={() => void syncRatings()}
-            title="Busca notas RAWG/Metacritic/Steam para a biblioteca (TTL 7 dias)"
-          >
-            {syncingRatings ? 'Buscando notas…' : 'Sync notas'}
-            {!syncingRatings && ratingsStaleDays() > 0 && (
-              <span className="badge badge--stale" title="Notas com mais de 7 dias">
-                {ratingsStaleDays()} antigas
-              </span>
-            )}
-          </button>
-          <button type="button" onClick={() => setView({ kind: 'providers' })}>
-            Providers
-          </button>
-          <button type="button" onClick={() => setView({ kind: 'emulation' })}>
-            Emulação
-          </button>
-          <button type="button" onClick={() => setView({ kind: 'wishlist' })}>
-            Wishlist
-          </button>
-          <button type="button" onClick={() => setView({ kind: 'duplicates' })}>
-            Duplicatas
-          </button>
-          <button type="button" onClick={() => setView({ kind: 'about' })}>
-            Sobre
-          </button>
-          <button type="button" onClick={() => setView({ kind: 'settings' })}>
-            Configurações
-          </button>
+        <div className="header__actions" ref={headerMenuRef}>
           <button
             type="button"
             className="primary"
             onClick={() => setView({ kind: 'form', gameId: null })}
           >
-            + Adicionar jogo (Ctrl+N)
+            + Adicionar
           </button>
+          <div className="kebab">
+            <button
+              type="button"
+              className="kebab__btn"
+              aria-haspopup="menu"
+              aria-expanded={headerMenuOpen}
+              aria-label="Mais ações"
+              title="Mais ações"
+              onClick={() => setHeaderMenuOpen((o) => !o)}
+            >
+              ⋯
+            </button>
+            {headerMenuOpen && (
+              <div className="kebab__menu" role="menu">
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={syncingAll}
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    void syncAll();
+                  }}
+                >
+                  {syncingAll ? 'Sincronizando lojas…' : 'Sync lojas'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={syncingRatings}
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    void syncRatings(true);
+                  }}
+                >
+                  {syncingRatings ? 'Enriquecendo…' : 'Atualizar notas (+ capas retro)'}
+                </button>
+                <hr className="kebab__sep" />
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    void window.api.windowToggleFullscreen();
+                  }}
+                >
+                  Tela cheia (F11)
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    setView({ kind: 'providers' });
+                  }}
+                >
+                  Providers
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    setView({ kind: 'duplicates' });
+                  }}
+                >
+                  Duplicatas
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    setView({ kind: 'settings' });
+                  }}
+                >
+                  Configurações
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setHeaderMenuOpen(false);
+                    setView({ kind: 'about' });
+                  }}
+                >
+                  Sobre
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
+      {enrichProgress && (
+        <div className="enrich-bar" role="status" aria-live="polite">
+          <strong>
+            {enrichProgress.total > 0
+              ? `${enrichProgress.index}/${enrichProgress.total}`
+              : '…'}
+          </strong>
+          <div className="enrich-bar__track">
+            <div
+              className="enrich-bar__fill"
+              style={{
+                width:
+                  enrichProgress.total > 0
+                    ? `${Math.round((enrichProgress.index / enrichProgress.total) * 100)}%`
+                    : '8%',
+              }}
+            />
+          </div>
+          <span className="hint">
+            Retro → capas → notas — {enrichProgress.title}
+          </span>
+        </div>
+      )}
+
       <div className="filters" role="tablist" aria-label="Filtrar por plataforma">
-        {FILTER_OPTIONS.map(({ id, label }) => (
+        {FILTER_OPTIONS.map(({ id, label }, fi) => (
           <button
             key={id}
             type="button"
             role="tab"
             aria-selected={filter === id}
-            className={`filter-chip ${filter === id ? 'filter-chip--active' : ''}`}
+            className={`filter-chip ${filter === id ? 'filter-chip--active' : ''} ${
+              padZone === 'filters' && padFilterIdx === fi ? 'filter-chip--focus' : ''
+            }`}
             onClick={() => {
               setFilter(id);
               setSelected(0);
+              setPadZone('grid');
             }}
           >
             {label}
@@ -572,7 +1053,11 @@ export default function App(): JSX.Element {
         ))}
         <button
           type="button"
-          className={`filter-chip ${installedOnly ? 'filter-chip--active' : ''}`}
+          className={`filter-chip ${installedOnly ? 'filter-chip--active' : ''} ${
+            padZone === 'filters' && padFilterIdx === FILTER_OPTIONS.length
+              ? 'filter-chip--focus'
+              : ''
+          }`}
           aria-pressed={installedOnly}
           onClick={() => {
             setInstalledOnly((v) => !v);
@@ -586,7 +1071,11 @@ export default function App(): JSX.Element {
         </button>
         <button
           type="button"
-          className={`filter-chip ${minRating === 80 ? 'filter-chip--active' : ''}`}
+          className={`filter-chip ${minRating === 80 ? 'filter-chip--active' : ''} ${
+            padZone === 'filters' && padFilterIdx === FILTER_OPTIONS.length + 1
+              ? 'filter-chip--focus'
+              : ''
+          }`}
           aria-pressed={minRating === 80}
           onClick={() => {
             setMinRating((v) => (v === 80 ? 0 : 80));
@@ -622,7 +1111,10 @@ export default function App(): JSX.Element {
           aria-label="Ordenar por"
         >
           <option value="name">Ordenar: nome</option>
-          <option value="rating">Ordenar: nota</option>
+          <option value="rating">Ordenar: nota (geral)</option>
+          <option value="metacritic">Ordenar: Metacritic</option>
+          <option value="rawg">Ordenar: RAWG</option>
+          <option value="steam">Ordenar: Steam %</option>
           <option value="recent">Ordenar: recentes</option>
         </select>
         {allGenres.length > 0 && (
@@ -656,6 +1148,7 @@ export default function App(): JSX.Element {
                 game={game}
                 selected={false}
                 score={ratings[game.id]?.score}
+                ratingSummary={ratings[game.id]}
                 hideScore={hideNotes}
                 onSelect={() => {
                   setSelected(0);
@@ -678,6 +1171,7 @@ export default function App(): JSX.Element {
                 game={game}
                 selected={false}
                 score={ratings[game.id]?.score}
+                ratingSummary={ratings[game.id]}
                 hideScore={hideNotes}
                 onSelect={() => {
                   setSelected(0);
@@ -711,14 +1205,18 @@ export default function App(): JSX.Element {
         <VirtualizedGameGrid
           games={visibleGames}
           cols={cols}
-          selected={selected}
+          selected={padZone === 'grid' ? selected : -1}
           scores={Object.fromEntries(
             visibleGames.map((g) => [g.id, ratings[g.id]?.score ?? null])
           )}
+          ratings={ratings}
           hideScores={hideNotes}
           cardHeight={Math.round(profileTokens.cardWidth * 1.45)}
           gap={profileTokens.cardGap}
-          onSelect={setSelected}
+          onSelect={(index) => {
+            setPadZone('grid');
+            setSelected(index);
+          }}
           onOpen={(gameId) => setView({ kind: 'detail', gameId })}
         />
       )}
@@ -726,8 +1224,10 @@ export default function App(): JSX.Element {
       {!ready && <div className="boot-ready" aria-live="polite">Carregando biblioteca…</div>}
 
       <footer className="hint">
-        Navegue com as setas · Enter abre o jogo · Ctrl+N adiciona · Clique duplo joga · Y busca · Start config
+        Controle: ↑ filtros · ← sidebar · A confirma · B volta · Y busca · Start config
       </footer>
+        </>
+      )}
 
       {detailGame && (
         <GameDetailModal
@@ -770,18 +1270,6 @@ export default function App(): JSX.Element {
         />
       )}
 
-      {view.kind === 'wishlist' && (
-        <WishlistModal
-          onClose={() => setView({ kind: 'library' })}
-          onAlerts={(alerts) =>
-            notify(
-              alerts.map((a) => `${a.title} — ${a.currentPrice.toFixed(2)} ${a.currency}`).join(' · '),
-              'ok'
-            )
-          }
-        />
-      )}
-
       {view.kind === 'settings' && (
         <SettingsModal
           onClose={() => setView({ kind: 'library' })}
@@ -797,32 +1285,18 @@ export default function App(): JSX.Element {
         <AccountsPanel onClose={() => setView({ kind: 'settings' })} />
       )}
 
-      {/* Login Google → em seguida tela só das 4 lojas */}
       {!user && (
         <LoginModal
           onSuccess={(u) => {
             setUser(u);
             void window.api.settingsGet('onboarding.stores').then((done) => {
-              if (done !== '1') setShowStoreConnect(true);
+              setSection(done !== '1' ? 'stores' : 'library');
             });
           }}
         />
       )}
 
-      {user && showStoreConnect && (
-        <StoreConnectScreen
-          userName={user.name}
-          onContinue={() => {
-            void window.api.settingsSet('onboarding.stores', '1');
-            void window.api.settingsSet('onboarding.done', '1');
-            setShowStoreConnect(false);
-            void refresh();
-            void window.api.providersSyncAll().then(() => refresh()).catch(() => undefined);
-          }}
-        />
-      )}
-
-      {showOnboarding && user && !showStoreConnect && (
+      {showOnboarding && user && section === 'library' && (
         <OnboardingModal
           steamAvailable={Boolean(steam?.available)}
           steamGames={steam?.gamesCount ?? 0}
@@ -851,5 +1325,6 @@ export default function App(): JSX.Element {
 
       <Toast message={toast?.message ?? ''} kind={toast?.kind ?? 'ok'} />
     </main>
+    </div>
   );
 }

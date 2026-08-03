@@ -12,6 +12,12 @@ type Step = 'stores' | 'retro' | 'local';
 interface Props {
   userName?: string | null;
   onContinue: () => void;
+  /** Painel do menu lateral (não fullscreen). */
+  embedded?: boolean;
+  /** Após importar jogos nas lojas. */
+  onLibraryChanged?: () => void;
+  /** Abre a tela console → jogos. */
+  onOpenEmulation?: () => void;
 }
 
 const STORES: Array<{
@@ -21,9 +27,9 @@ const STORES: Array<{
   accent: string;
 }> = [
   { id: 'steam', label: 'Steam', hint: 'Biblioteca e wishlist', accent: '#66c0f4' },
-  { id: 'epic', label: 'Epic Games', hint: 'Via Legendary', accent: '#0078f2' },
-  { id: 'gog', label: 'GOG', hint: 'Via gogdl / Galaxy', accent: '#c272ff' },
-  { id: 'amazon', label: 'Amazon Games', hint: 'Via Nile', accent: '#ff9900' },
+  { id: 'epic', label: 'Epic Games', hint: 'Login Epic (Legendary)', accent: '#0078f2' },
+  { id: 'gog', label: 'GOG', hint: 'Biblioteca + wishlist', accent: '#c272ff' },
+  { id: 'amazon', label: 'Amazon Games', hint: 'Login Nile / Sonic', accent: '#ff9900' },
 ];
 
 function shortPath(p: string): string {
@@ -32,8 +38,14 @@ function shortPath(p: string): string {
   return `…${p.slice(-46)}`;
 }
 
-/** Tela pós-login: lojas + Retro + jogos externos. */
-export default function StoreConnectScreen({ userName, onContinue }: Props): JSX.Element {
+/** Tela / painel: lojas + Retro + jogos externos. */
+export default function StoreConnectScreen({
+  userName,
+  onContinue,
+  embedded = false,
+  onLibraryChanged,
+  onOpenEmulation,
+}: Props): JSX.Element {
   const [step, setStep] = useState<Step>('stores');
   const [accounts, setAccounts] = useState<PlatformAccount[]>([]);
   const [connecting, setConnecting] = useState<StoreId | null>(null);
@@ -51,6 +63,37 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
     gamesFound: 0,
   });
   const [scanning, setScanning] = useState(false);
+  const [syncingStore, setSyncingStore] = useState<StoreId | 'steam' | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const syncStoreLibrary = async (id: StoreId | 'steam') => {
+    setSyncingStore(id);
+    setError(null);
+    setStatus(null);
+    try {
+      const res =
+        id === 'steam' ? await window.api.steamScan() : await window.api.storeScan(id);
+      const label = id === 'steam' ? 'Steam' : id.toUpperCase();
+      setStatus(
+        res.inserted > 0
+          ? `${label}: ${res.inserted} novos (${res.total} na biblioteca)`
+          : `${label}: ${res.total} jogo(s) sincronizados`
+      );
+      onLibraryChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncingStore(null);
+    }
+  };
+
+  const wrapClass = embedded ? 'store-connect store-connect--page' : 'store-connect';
+  const backLabel = embedded ? '← Voltar' : '← Voltar às fontes';
+  const backToStores = () => {
+    setError(null);
+    setStatus(null);
+    setStep('stores');
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -76,11 +119,16 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
   const connect = async (id: StoreId) => {
     setConnecting(id);
     setError(null);
+    setStatus(null);
     try {
       await window.api.authConnectPlatform(id);
       await refresh();
+      // syncAfterPlatformConnect no main já roda; reforça e mostra resultado na UI
+      await syncStoreLibrary(id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Mesmo em "cancelada", a conta pode ter sido gravada — atualiza o botão
+      await refresh();
       if (!/cancelad/i.test(msg)) setError(msg);
     } finally {
       setConnecting(null);
@@ -99,8 +147,25 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
 
   const pickRoms = async () => {
     setError(null);
-    const res = await window.api.emulationPickRomsRoot();
-    if (res) setRetro(res);
+    setScanning(true);
+    try {
+      const res = await window.api.emulationPickRomsRoot();
+      if (!res) return;
+      setRetro(res);
+      const found = res.lastScanFound ?? 0;
+      const added = res.lastScanAdded ?? 0;
+      setError(
+        found > 0
+          ? `ROMs: ${added} novos (${found} encontrados) · capas e notas em seguida`
+          : 'ROMs: pasta ok, nenhum arquivo reconhecido — confira subpastas snes/, gba/, ps2/…'
+      );
+      onLibraryChanged?.();
+      void window.api.ratingsEnrichStream({ maxGames: 64 }).then(() => onLibraryChanged?.()).catch(() => undefined);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setScanning(false);
+    }
   };
 
   const pickEmulators = async () => {
@@ -122,10 +187,13 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
     try {
       const res = await window.api.emulationScanAll();
       setError(
-        res.added > 0
-          ? `ROMs: ${res.added} novos (${res.found} encontrados)`
-          : `ROMs: ${res.found} encontrados, nenhum novo`
+        res.added > 0 || res.found > 0
+          ? `ROMs: ${res.added} novos (${res.found} encontrados) · capas e notas em seguida`
+          : 'ROMs: nenhum arquivo encontrado nas pastas dos consoles'
       );
+      onLibraryChanged?.();
+      // Ordem: jogos já no DB → capas retro → notas
+      void window.api.ratingsEnrichStream({ maxGames: 64 }).then(() => onLibraryChanged?.()).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -159,16 +227,17 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
 
   if (step === 'retro') {
     return (
-      <div className="store-connect" role="dialog" aria-modal="true" aria-labelledby="retro-setup-title">
+      <div className={wrapClass} role="region" aria-labelledby="retro-setup-title">
         <div className="store-connect__inner">
-          <button type="button" className="store-connect__back" onClick={() => setStep('stores')}>
-            ← Voltar às fontes
+          <button type="button" className="store-connect__back" onClick={backToStores}>
+            {backLabel}
           </button>
           <p className="store-connect__eyebrow">Retro / Emulação</p>
           <h1 id="retro-setup-title">Pastas de ROMs e emuladores</h1>
           <p className="store-connect__lead">
-            Escolha a pasta onde ficam seus ROMs e a pasta onde estão os emuladores (RetroArch, PCSX2…).
-            O launcher detecta os binários e associa as pastas aos consoles.
+            Escolha a pasta onde ficam seus ROMs (ex.: <code>D:\Jogos\Retro Games\ROMs e ISOs</code>).
+            Cada subpasta é um sistema (<code>nes</code>, <code>snes</code>, <code>psx</code>, <code>n64</code>…).
+            Priorizamos Nintendo, Sony e Sega; o restante do catálogo EmulationStation fica pra depois.
           </p>
 
           <div className="retro-setup">
@@ -178,11 +247,15 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
                 <small>
                   {retro.romsRoot
                     ? shortPath(retro.romsRoot)
-                    : 'Ex.: D:\\Games\\ROMs — subpastas snes/, gba/… são usadas se existirem'}
+                    : 'Ex.: D:\\ROMs — pastas snes/, gba/, ps1/, ps2/… (ou nomes longos)'}
                 </small>
               </div>
-              <button type="button" className="primary" onClick={() => void pickRoms()}>
-                {retro.romsConfigured ? 'Trocar pasta' : 'Selecionar pasta'}
+              <button type="button" className="primary" disabled={scanning} onClick={() => void pickRoms()}>
+                {scanning
+                  ? 'Escaneando…'
+                  : retro.romsConfigured
+                    ? 'Trocar / reescanear'
+                    : 'Selecionar pasta'}
               </button>
             </div>
 
@@ -213,9 +286,19 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
               disabled={!retro.romsConfigured || scanning}
               onClick={() => void scanRoms()}
             >
-              {scanning ? 'Escaneando ROMs…' : 'Escanear ROMs agora'}
+              {scanning ? 'Escaneando ROMs…' : 'Escanear ROMs de novo'}
             </button>
-            <button type="button" className="primary store-connect__continue" onClick={() => setStep('stores')}>
+            {onOpenEmulation && (
+              <button
+                type="button"
+                className="primary"
+                disabled={!retro.romsConfigured}
+                onClick={onOpenEmulation}
+              >
+                Abrir consoles → jogos
+              </button>
+            )}
+            <button type="button" className="primary store-connect__continue" onClick={backToStores}>
               Pronto — voltar
             </button>
           </div>
@@ -226,10 +309,10 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
 
   if (step === 'local') {
     return (
-      <div className="store-connect" role="dialog" aria-modal="true" aria-labelledby="local-setup-title">
+      <div className={wrapClass} role="region" aria-labelledby="local-setup-title">
         <div className="store-connect__inner">
-          <button type="button" className="store-connect__back" onClick={() => setStep('stores')}>
-            ← Voltar às fontes
+          <button type="button" className="store-connect__back" onClick={backToStores}>
+            {backLabel}
           </button>
           <p className="store-connect__eyebrow">Fora das lojas</p>
           <h1 id="local-setup-title">Pasta de jogos externos</h1>
@@ -270,7 +353,7 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
             >
               {scanning ? 'Escaneando…' : 'Escanear jogos agora'}
             </button>
-            <button type="button" className="primary store-connect__continue" onClick={() => setStep('stores')}>
+            <button type="button" className="primary store-connect__continue" onClick={backToStores}>
               Pronto — voltar
             </button>
           </div>
@@ -280,14 +363,14 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
   }
 
   return (
-    <div className="store-connect" role="dialog" aria-modal="true" aria-labelledby="store-connect-title">
+    <div className={wrapClass} role="region" aria-labelledby="store-connect-title">
       <div className="store-connect__inner">
-        <p className="store-connect__eyebrow">Depois do Google</p>
-        <h1 id="store-connect-title">Conecte suas fontes</h1>
+        <p className="store-connect__eyebrow">{embedded ? 'Fontes' : 'Depois do Google'}</p>
+        <h1 id="store-connect-title">{embedded ? 'Conectar lojas e pastas' : 'Conecte suas fontes'}</h1>
         <p className="store-connect__lead">
           {userName ? `Olá, ${userName.split(' ')[0]}. ` : ''}
-          Autentique as lojas e, se quiser, configure ROMs ou jogos externos. Você pode pular e fazer
-          depois.
+          Autentique as lojas e, se quiser, configure ROMs ou jogos externos.
+          {embedded ? '' : ' Você pode pular e fazer depois.'}
         </p>
 
         {loading ? (
@@ -330,6 +413,7 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
               style={{ '--store-accent': '#fbbf24' } as CSSProperties}
               onClick={() => {
                 setError(null);
+                setStatus(null);
                 setStep('local');
               }}
             >
@@ -371,6 +455,28 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
           </div>
         )}
 
+        {accounts.length > 0 && (
+          <div className="store-connect__import">
+            <p className="store-connect__import-label">Importar jogos das lojas já conectadas</p>
+            <div className="store-connect__import-actions">
+              {accounts.map((a) => (
+                <button
+                  key={a.platform}
+                  type="button"
+                  className="primary"
+                  disabled={syncingStore === a.platform || connecting !== null}
+                  onClick={() => void syncStoreLibrary(a.platform)}
+                >
+                  {syncingStore === a.platform
+                    ? `Importando ${a.platform}…`
+                    : `Importar ${a.platform === 'steam' ? 'Steam' : a.platform.toUpperCase()}`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {status && <p className="store-connect__status">{status}</p>}
         {error && !/ROMs:|Externos:/.test(error) && <p className="store-connect__error">{error}</p>}
 
         <div className="store-connect__footer">
@@ -386,7 +492,11 @@ export default function StoreConnectScreen({ userName, onContinue }: Props): JSX
                   .join(' · ')}
           </p>
           <button type="button" className="primary store-connect__continue" onClick={onContinue}>
-            {anySource ? 'Continuar para a biblioteca' : 'Pular por agora'}
+            {embedded
+              ? 'Ir para a biblioteca'
+              : anySource
+                ? 'Continuar para a biblioteca'
+                : 'Pular por agora'}
           </button>
         </div>
       </div>

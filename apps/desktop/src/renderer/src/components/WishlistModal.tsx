@@ -4,6 +4,8 @@ import type { ITADSearchResult, WishlistAlert, WishlistEntry } from '../../../sh
 interface Props {
   onClose: () => void;
   onAlerts?: (alerts: WishlistAlert[]) => void;
+  /** Painel do menu lateral (sem backdrop). */
+  embedded?: boolean;
 }
 
 function priceLabel(entry: WishlistEntry): string {
@@ -139,7 +141,7 @@ function WishlistRow({ entry, onUpdate, onRemove, onOpenOffer }: RowProps): JSX.
   );
 }
 
-export default function WishlistModal({ onClose, onAlerts }: Props): JSX.Element {
+export default function WishlistModal({ onClose, onAlerts, embedded = false }: Props): JSX.Element {
   const [entries, setEntries] = useState<WishlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -271,15 +273,16 @@ export default function WishlistModal({ onClose, onAlerts }: Props): JSX.Element
     await load();
   };
 
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--wide modal--wishlist" onClick={(e) => e.stopPropagation()}>
+  const body = (
+      <>
         <div className="modal__header">
-          <h2>Wishlist</h2>
+          <h2>Wishlist & promoções</h2>
           <span className="badge">{entries.length} jogo(s)</span>
-          <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
-            ×
-          </button>
+          {!embedded && (
+            <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
+              ×
+            </button>
+          )}
         </div>
 
         <div className="wishlist__actions">
@@ -365,9 +368,22 @@ export default function WishlistModal({ onClose, onAlerts }: Props): JSX.Element
           </ul>
         )}
 
-        <div className="modal__actions">
-          <button type="button" onClick={onClose}>Fechar (Esc)</button>
-        </div>
+        {!embedded && (
+          <div className="modal__actions">
+            <button type="button" onClick={onClose}>Fechar (Esc)</button>
+          </div>
+        )}
+      </>
+  );
+
+  if (embedded) {
+    return <div className="wishlist-page">{body}</div>;
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal--wide modal--wishlist" onClick={(e) => e.stopPropagation()}>
+        {body}
       </div>
     </div>
   );

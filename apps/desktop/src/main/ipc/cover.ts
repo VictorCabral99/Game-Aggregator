@@ -3,8 +3,9 @@ import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getLibraryRepository } from '../db';
+import { getLibraryRepository, getSetting } from '../db';
 import type { Game } from '../db/games';
+import { libretroCoverCandidates } from '../emulation/libretro-covers';
 
 export function coversDir(): string {
   return join(app.getPath('userData'), 'covers');
@@ -16,13 +17,23 @@ async function ensureCoversDir(): Promise<void> {
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 
-/** Candidatos de URL de capa para um jogo (P3-10): URL gravada ou Steam CDN por appid. */
+function resolvedSteamAppId(game: Game): string | null {
+  const fromSource = game.sources.find((s) => s.platform === 'steam' && s.externalId)?.externalId;
+  if (fromSource) return fromSource;
+  return getSetting(`steam.appid.${game.id}`)?.trim() || null;
+}
+
+/** Candidatos de URL de capa: coverUrl da loja, Steam CDN, ou Libretro boxarts (retro). */
 function coverCandidates(game: Game): string[] {
   const urls: string[] = [];
   if (game.coverUrl) urls.push(game.coverUrl);
+  const appid = resolvedSteamAppId(game);
+  if (appid) {
+    urls.push(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`);
+  }
   for (const s of game.sources) {
-    if (s.platform === 'steam' && s.externalId) {
-      urls.push(`https://cdn.cloudflare.steamstatic.com/steam/apps/${s.externalId}/library_600x900.jpg`);
+    if (s.platform === 'emulator' && s.consoleId) {
+      urls.push(...libretroCoverCandidates(game.title, s.consoleId));
     }
   }
   return [...new Set(urls)];
@@ -40,6 +51,20 @@ export async function downloadCoverForGame(game: Game): Promise<boolean> {
     }
   }
   return false;
+}
+
+/** Capas faltantes só de ROMs (após scan retro). */
+export async function downloadMissingRetroCovers(): Promise<{ downloaded: number; failed: number }> {
+  const games = getLibraryRepository()
+    .list()
+    .filter((g) => !g.coverPath && g.sources.some((s) => s.platform === 'emulator'));
+  let downloaded = 0;
+  let failed = 0;
+  for (const game of games) {
+    if (await downloadCoverForGame(game)) downloaded += 1;
+    else failed += 1;
+  }
+  return { downloaded, failed };
 }
 
 export function registerCoverHandlers(): void {
@@ -67,16 +92,9 @@ export function registerCoverHandlers(): void {
     return downloadToCache(url);
   });
 
-  // Baixa capas faltantes em lote (offline na próxima abertura).
+  // Baixa capas faltantes só de ROMs (lojas usam coverUrl do sync).
   ipcMain.handle('covers:download-missing', async (): Promise<{ downloaded: number; failed: number }> => {
-    const games = getLibraryRepository().list().filter((g) => !g.coverPath);
-    let downloaded = 0;
-    let failed = 0;
-    for (const game of games) {
-      if (await downloadCoverForGame(game)) downloaded++;
-      else failed++;
-    }
-    return { downloaded, failed };
+    return downloadMissingRetroCovers();
   });
 }
 

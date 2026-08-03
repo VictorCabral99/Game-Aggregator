@@ -27,8 +27,8 @@ const ROWS: SettingRow[] = [
   },
   {
     key: 'ui.fullscreen',
-    label: 'Iniciar em tela cheia',
-    hint: 'Abre o launcher em fullscreen no boot (requer reiniciar o app)',
+    label: 'Tela cheia',
+    hint: 'Aplica na hora (também F11 ou menu ⋯). Lembra na próxima abertura',
   },
   {
     key: 'ui.sounds',

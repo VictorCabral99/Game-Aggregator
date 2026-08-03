@@ -1,4 +1,4 @@
-import type { Game, GamePlatform } from '../../../shared/api';
+import type { Game, GamePlatform, RatingsSummary } from '../../../shared/api';
 
 export function coverSrc(game: Game): string | null {
   if (game.coverPath) return `cover://img/${encodeURIComponent(game.coverPath)}`;
@@ -10,16 +10,40 @@ interface Props {
   game: Game;
   selected: boolean;
   score?: number | null;
+  ratingSummary?: RatingsSummary | null;
   hideScore?: boolean;
   onSelect: () => void;
   onOpen: () => void;
 }
 
-export default function GameCard({ game, selected, score, hideScore, onSelect, onOpen }: Props): JSX.Element {
+function displaySourceScore(
+  summary: RatingsSummary | null | undefined,
+  source: 'rawg' | 'metacritic' | 'steam'
+): number | null {
+  const row = summary?.sources.find((s) => s.source === source);
+  if (row?.score == null || row.score <= 0) return null;
+  if (source === 'rawg' && row.score <= 5) return Math.round(row.score * 20 * 10) / 10;
+  return row.score;
+}
+
+export default function GameCard({
+  game,
+  selected,
+  score,
+  ratingSummary,
+  hideScore,
+  onSelect,
+  onOpen,
+}: Props): JSX.Element {
   const src = coverSrc(game);
   const preferred = game.preferredSource;
   const badges = game.sources.map((s) => PLATFORM_LABELS[s.platform]).filter(Boolean);
   const uniqueBadges = [...new Set(badges)];
+  const meta = displaySourceScore(ratingSummary, 'metacritic');
+  const rawg = displaySourceScore(ratingSummary, 'rawg');
+  const steam = displaySourceScore(ratingSummary, 'steam');
+  const hasBreakdown = Boolean(meta || rawg || steam);
+
   return (
     <button
       type="button"
@@ -45,6 +69,15 @@ export default function GameCard({ game, selected, score, hideScore, onSelect, o
         )}
       </div>
       <div className="card__title">{game.title}</div>
+      {!hideScore && hasBreakdown && (
+        <div className="card__ratings" title="Metacritic · RAWG · Steam % positivas">
+          {meta != null && <span className="card__rating card__rating--meta">MC {Math.round(meta)}</span>}
+          {rawg != null && <span className="card__rating card__rating--rawg">R {rawg}</span>}
+          {steam != null && (
+            <span className="card__rating card__rating--steam">S {Math.round(steam)}%</span>
+          )}
+        </div>
+      )}
       {preferred?.lastPlayedAt && (
         <div className="card__meta">Jogado {dateLabel(preferred.lastPlayedAt)}</div>
       )}

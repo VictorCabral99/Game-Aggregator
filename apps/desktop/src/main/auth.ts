@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain, net } from 'electron';
 import { URLSearchParams } from 'node:url';
-import { getAuthRepository } from './db';
+import { getAuthRepository, getSetting, setSetting } from './db';
 import type {
   GoogleAuthCallbackResult,
   GoogleAuthStartResult,
@@ -17,12 +17,45 @@ const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v3/userinfo';
 let currentUser: User | null = null;
 let pendingState: string | null = null;
 
+function persistSession(user: User | null): void {
+  setSetting('auth.sessionUserId', user?.id ?? '');
+}
+
+/** Restaura usuário do SQLite (sobrevive a restart). Logout explícito grava session vazia. */
+export function restoreSession(): User | null {
+  if (currentUser) return currentUser;
+
+  const repo = getAuthRepository();
+  const raw = getSetting('auth.sessionUserId');
+
+  // '' = logout explícito — não reabrir sessão automática
+  if (raw === '') return null;
+
+  if (raw?.trim()) {
+    const user = repo.getUser(raw.trim());
+    if (user && repo.getAccount(user.id, 'google')) {
+      currentUser = user;
+      return currentUser;
+    }
+  }
+
+  // Contas antigas (pré-persistência): hidrata o último Google e grava a flag
+  const latest = repo.getLatestGoogleUser();
+  if (latest) {
+    currentUser = latest;
+    persistSession(latest);
+    return currentUser;
+  }
+
+  return null;
+}
+
 export function getCurrentUser(): User | null {
-  return currentUser;
+  return currentUser ?? restoreSession();
 }
 
 export function getCurrentUserId(): string | null {
-  return currentUser?.id ?? null;
+  return getCurrentUser()?.id ?? null;
 }
 
 function clientId(): string {
@@ -174,6 +207,7 @@ function getOrCreateUserFromGoogle(
   });
 
   currentUser = user;
+  persistSession(user);
   return { user, account };
 }
 
@@ -265,7 +299,7 @@ export function startGoogleAuth(): Promise<GoogleAuthStartResult> {
 }
 
 export function registerAuthHandlers(): void {
-  ipcMain.handle('auth:get-current-user', async () => currentUser);
+  ipcMain.handle('auth:get-current-user', async () => getCurrentUser());
 
   ipcMain.handle('auth:get-google-auth-url', async () => startGoogleAuth());
 
@@ -281,6 +315,7 @@ export function registerAuthHandlers(): void {
 
   ipcMain.handle('auth:logout', async () => {
     currentUser = null;
+    persistSession(null);
     return { ok: true };
   });
 }

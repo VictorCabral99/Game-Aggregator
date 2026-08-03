@@ -113,14 +113,17 @@ Se **Buscar preços** falhar com “ITAD_API_KEY inválida ou expirada”, gere 
 
 ### GOG — `GOG_CLIENT_ID` / `GOG_CLIENT_SECRET` (opcional)
 
-O app já usa o **client público Galaxy** (mesmo padrão Heroic/gogdl) se as variáveis estiverem vazias.
+O desktop usa o **client público Galaxy** (mesmo do Heroic/gogdl) se as variáveis estiverem vazias.
 
-1. No app: **Entrar com GOG**
-2. Abre o login oficial Galaxy
-3. Após o login, a URL de sucesso contém o `code` (redirect `embed.gog.com/...`)
-4. Cole a URL ou o código no formulário do app
+- **Auth:** `https://auth.gog.com/auth`
+- **Redirect capturado:** `https://embed.gog.com/on_login_success?origin=client` (não localhost)
+- **Token:** GET em `https://auth.gog.com/token`
 
-**Não precisa** de client próprio para o fluxo bridge atual.
+1. No app: **Lojas → GOG → Conectar**
+2. Faz login na janela Galaxy
+3. O app captura o `code` no redirect `embed.gog.com` e grava a conta
+
+**Não precisa** de client próprio para esse fluxo.
 
 ---
 

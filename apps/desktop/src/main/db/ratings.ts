@@ -38,6 +38,11 @@ export class RatingsRepository {
     return rows.map(mapRating);
   }
 
+  listAll(): GameRating[] {
+    const rows = this.db.prepare(`SELECT * FROM ratings`).all() as unknown as RatingRow[];
+    return rows.map(mapRating);
+  }
+
   listForGames(gameIds: string[]): Record<string, GameRating[]> {
     if (gameIds.length === 0) return {};
     const placeholders = gameIds.map(() => '?').join(',');
@@ -51,22 +56,30 @@ export class RatingsRepository {
     return byGame;
   }
 
-  /** Mapa gameId → summary composto para todos os jogos da biblioteca. */
+  /** Mapa gameId → summary composto — 1 SELECT em ratings (sem N+1). */
   summariesForAll(): Record<string, RatingsSummary | null> {
     const rows = this.db
-      .prepare(`SELECT id FROM canonical_games`)
-      .all() as Array<{ id: string }>;
-    const result: Record<string, RatingsSummary | null> = {};
+      .prepare(`SELECT * FROM ratings`)
+      .all() as unknown as RatingRow[];
+    const byGame = new Map<string, GameRating[]>();
     for (const row of rows) {
-      const summary = this.summaryForGame(row.id);
-      if (summary) result[row.id] = summary;
+      const list = byGame.get(row.game_id) ?? [];
+      list.push(mapRating(row));
+      byGame.set(row.game_id, list);
+    }
+    const result: Record<string, RatingsSummary | null> = {};
+    for (const [gameId, ratings] of byGame) {
+      result[gameId] = this.summaryFromRatings(ratings);
     }
     return result;
   }
 
   /** Nota "composta" para o jogo (prioridade steam % → rawg*20 → metacritic). */
   summaryForGame(gameId: string): RatingsSummary | null {
-    const ratings = this.listForGame(gameId);
+    return this.summaryFromRatings(this.listForGame(gameId));
+  }
+
+  private summaryFromRatings(ratings: GameRating[]): RatingsSummary | null {
     if (ratings.length === 0) return null;
 
     const display: RatingsSummary['sources'] = ratings.map((r) => ({
@@ -85,7 +98,6 @@ export class RatingsRepository {
     }
     if (valid.length === 0) return { score: null, source: null, updatedAt: null, sources: display };
 
-    // Preferência: steam % > rawg > metacritic
     const order: RatingSource[] = ['steam', 'rawg', 'metacritic'];
     const bySource = new Map(valid.map((v) => [v.source, v.score]));
     const picked = order.find((s) => bySource.has(s)) ?? valid[0].source;

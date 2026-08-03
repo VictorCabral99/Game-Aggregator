@@ -1,7 +1,8 @@
 import { ipcMain } from 'electron';
 import type { ProviderStatus, StoreScanResult, SyncAllResult } from '../../shared/api';
 import type { GamePlatform, ProviderGameRow } from '../db/games';
-import { getLibraryRepository, getSetting, setSetting } from '../db';
+import { getAuthRepository, getLibraryRepository, getSetting, setSetting } from '../db';
+import { getCurrentUserId } from '../auth';
 import {
   getAmazonProvider,
   getEpicProvider,
@@ -10,6 +11,14 @@ import {
 } from '../providers';
 import type { SidecarProvider } from '../providers/sidecar';
 import type { ProviderGame } from '@gagg/core';
+import { fetchGogOwnedGames } from '../providers/gog-library';
+import { fetchEpicOwnedGames } from '../providers/epic-library';
+import { fetchAmazonOwnedGames } from '../providers/amazon-library';
+import {
+  fetchSteamOwnedGames,
+  resolveSteamApiKey,
+  resolveSteamId,
+} from '../providers/steam-library';
 
 const STORE_FACTORIES: Array<() => SidecarProvider> = [
   () => getEpicProvider(),
@@ -61,6 +70,12 @@ export function sidecarStatus(provider: SidecarProvider): ProviderStatus {
   status.available = provider.isAvailable();
   status.version = provider.version();
   status.path = provider.binPath();
+
+  // OAuth conectado conta como disponível mesmo sem sidecar
+  if (!status.available && (provider.platform === 'gog' || provider.platform === 'epic' || provider.platform === 'amazon')) {
+    const account = platformAccount(provider.platform);
+    if (account?.accessToken) status.available = true;
+  }
   return status;
 }
 
@@ -77,6 +92,8 @@ function toRows(games: ProviderGame[]): ProviderGameRow[] {
     title: g.title,
     sizeBytes: g.sizeBytes,
     coverUrl: g.coverUrl,
+    installPath: g.installPath,
+    isInstalled: Boolean(g.installPath),
   }));
 }
 
@@ -96,16 +113,147 @@ async function runScan(
   }
 }
 
-/** Scan de um provider específico. */
-export function scanSteam() {
-  return runScan('steam', () => getSteamProvider().scan());
+function mergeInstallPaths(owned: ProviderGame[], installed: ProviderGame[]): ProviderGame[] {
+  const byId = new Map(installed.map((g) => [g.externalId, g]));
+  const merged = owned.map((g) => {
+    const local = byId.get(g.externalId);
+    if (!local) return g;
+    return {
+      ...g,
+      installPath: local.installPath ?? g.installPath,
+      sizeBytes: local.sizeBytes ?? g.sizeBytes,
+    };
+  });
+  for (const g of installed) {
+    if (!merged.some((m) => m.externalId === g.externalId)) merged.push(g);
+  }
+  return merged;
 }
 
+/** Steam: owned (Web API) + instalados locais (manifests). */
+export function scanSteam() {
+  return runScan('steam', async () => {
+    let installed: ProviderGame[] = [];
+    try {
+      installed = await getSteamProvider().scan();
+    } catch {
+      installed = [];
+    }
+
+    const steamId = resolveSteamId();
+    const apiKey = resolveSteamApiKey();
+    if (steamId && apiKey) {
+      const owned = await fetchSteamOwnedGames(steamId, apiKey);
+      return mergeInstallPaths(owned, installed);
+    }
+    if (installed.length > 0) return installed;
+    if (!steamId) {
+      throw new Error('Steam conectada sem SteamID — reconecte a Steam ou defina STEAM_ID');
+    }
+    throw new Error('STEAM_API_KEY ausente — não dá para listar a biblioteca owned');
+  });
+}
+
+function gogAccessToken(): string | null {
+  try {
+    const userId = getCurrentUserId() ?? getAuthRepository().getFirstUserId();
+    if (!userId) return null;
+    return getAuthRepository().getPlatformAccount(userId, 'gog')?.accessToken ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function platformAccount(platform: 'epic' | 'gog' | 'amazon') {
+  try {
+    const userId = getCurrentUserId() ?? getAuthRepository().getFirstUserId();
+    if (!userId) return null;
+    return getAuthRepository().getPlatformAccount(userId, platform);
+  } catch {
+    return null;
+  }
+}
+
+/** GOG/Epic/Amazon: owned via API OAuth; fallback sidecar list-installed se houver binário. */
 export function scanStore(id: GamePlatform) {
+  if (id === 'gog') {
+    return runScan('gog', async () => {
+      const token = gogAccessToken();
+      if (token) {
+        let installed: ProviderGame[] = [];
+        try {
+          if (getGogProvider().isAvailable()) installed = getGogProvider().scan();
+        } catch {
+          installed = [];
+        }
+        const owned = await fetchGogOwnedGames(token);
+        return mergeInstallPaths(owned, installed);
+      }
+      const provider = getGogProvider();
+      if (!provider.isAvailable()) {
+        throw new Error('GOG não conectada (OAuth) e gogdl.exe ausente');
+      }
+      return provider.scan();
+    });
+  }
+
+  if (id === 'epic') {
+    return runScan('epic', async () => {
+      const account = platformAccount('epic');
+      const token = account?.accessToken;
+      let installed: ProviderGame[] = [];
+      try {
+        if (getEpicProvider().isAvailable()) installed = getEpicProvider().scan();
+      } catch {
+        installed = [];
+      }
+      if (token) {
+        const owned = await fetchEpicOwnedGames(token);
+        return mergeInstallPaths(owned, installed);
+      }
+      if (installed.length > 0) return installed;
+      throw new Error('Epic não conectada — use Lojas → Epic → Conectar');
+    });
+  }
+
+  if (id === 'amazon') {
+    return runScan('amazon', async () => {
+      const account = platformAccount('amazon');
+      const token = account?.accessToken;
+      const serial =
+        typeof account?.metadata === 'object' && account.metadata && 'serial' in account.metadata
+          ? String((account.metadata as { serial?: string }).serial ?? '')
+          : '';
+      let installed: ProviderGame[] = [];
+      try {
+        if (getAmazonProvider().isAvailable()) installed = getAmazonProvider().scan();
+      } catch {
+        installed = [];
+      }
+      if (token && serial) {
+        const owned = await fetchAmazonOwnedGames(token, serial);
+        return mergeInstallPaths(owned, installed);
+      }
+      if (installed.length > 0) return installed;
+      if (token && !serial) {
+        throw new Error('Amazon conectada sem serial — reconecte a Amazon');
+      }
+      throw new Error('Amazon não conectada — use Lojas → Amazon → Conectar');
+    });
+  }
+
   const factory = STORE_FACTORIES.find((f) => f().platform === id);
   if (!factory) throw new Error(`Provider não suportado: ${id}`);
   const provider = factory();
   return runScan(id, () => provider.scan());
+}
+
+/** Após OAuth: importa jogos da loja conectada. */
+export async function syncAfterPlatformConnect(
+  platform: 'steam' | 'gog' | 'epic' | 'amazon'
+): Promise<StoreScanResult> {
+  if (platform === 'steam') return scanSteam();
+  return scanStore(platform);
 }
 
 /** Sync all: roda todos os providers com Promise.allSettled (falha não derruba os outros). */

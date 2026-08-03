@@ -51,9 +51,25 @@ export default function AccountsPanel({ onClose }: Props): JSX.Element {
     try {
       await window.api.authConnectPlatform(platform);
       await load();
-      setMessage(`${platform.toUpperCase()} conectado!`);
+      try {
+        const res =
+          platform === 'steam'
+            ? await window.api.steamScan()
+            : await window.api.storeScan(platform);
+        setMessage(
+          `${platform.toUpperCase()} conectado · ${res.total} jogo(s) (${res.inserted} novos)`
+        );
+      } catch (syncErr) {
+        setMessage(
+          `${platform.toUpperCase()} conectado, mas import falhou: ${
+            syncErr instanceof Error ? syncErr.message : String(syncErr)
+          }`
+        );
+      }
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : `Erro ao conectar ${platform}`);
+      await load();
+      const msg = err instanceof Error ? err.message : `Erro ao conectar ${platform}`;
+      if (!/cancelad/i.test(msg)) setMessage(msg);
     } finally {
       setConnecting(null);
     }

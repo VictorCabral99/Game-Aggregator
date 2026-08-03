@@ -19,7 +19,57 @@ const SKIP_EXE =
 const SKIP_DIR =
   /^(engine|redist|redistributables|__macosx|\.git|node_modules|temp|tmp|cache|logs?|crash|crashpad|cef)$/i;
 
+/** Utilitários Windows / apps que não são jogo (pasta ou título). */
+const NON_GAME_NAME =
+  /^(calculadora|calculator|calc|notepad|bloco de notas|paint|mspaint|wordpad|snipping tool|ferramenta de corte|ferramenta de recorte|explorer|file explorer|cmd|command prompt|prompt de comando|powershell|windows terminal|terminal|settings|configurações|configuracoes|photos|fotos|mail|maps|mapas|clock|alarme|relógio|relogio|weather|tempo|camera|câmera|camera|microsoft store|store|edge|microsoft edge|chrome|firefox|brave|opera|spotify|discord|teams|zoom|skype|onedrive|dropbox|winrar|7-?zip|vlc|notepad\+\+|sublime text|visual studio code|code|task manager|gerenciador de tarefas)$/i;
+
+const NON_GAME_EXE =
+  /^(calc|calculatorapp|notepad|mspaint|paintstudio|wordpad|SnippingTool|ScreenSketch|explorer|cmd|powershell|WindowsTerminal|msedge|chrome|firefox|spotify|Discord|Teams|Zoom|OneDrive|WinRAR|7zFM|vlc|Code|Taskmgr)$/i;
+
 const MAX_DEPTH = 3;
+
+function normalizeName(name: string): string {
+  return name
+    .replace(/\.exe$/i, '')
+    .replace(/[._-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Pasta/título/exe de utilitário — não entra na biblioteca. */
+export function isNonGameLocal(nameOrExe: string): boolean {
+  const base = path.basename(nameOrExe);
+  const asTitle = normalizeName(base);
+  if (NON_GAME_NAME.test(asTitle)) return true;
+  if (/\.exe$/i.test(base) && NON_GAME_EXE.test(base.replace(/\.exe$/i, ''))) return true;
+  return false;
+}
+
+/**
+ * Remove da biblioteca entradas locais que são utilitários (Calculadora, Notepad…).
+ * Só apaga jogos cuja única fonte é `local`.
+ */
+export function purgeNonGameLocals(): number {
+  const repo = getLibraryRepository();
+  let removed = 0;
+  for (const game of repo.list()) {
+    if (game.sources.length === 0) continue;
+    if (!game.sources.every((s) => s.platform === 'local')) continue;
+    const exe = game.preferredSource?.executable ?? game.sources[0]?.executable ?? '';
+    const folder = game.preferredSource?.installPath
+      ? path.basename(game.preferredSource.installPath)
+      : '';
+    if (
+      isNonGameLocal(game.title) ||
+      (folder && isNonGameLocal(folder)) ||
+      (exe && isNonGameLocal(exe))
+    ) {
+      repo.remove(game.id);
+      removed += 1;
+    }
+  }
+  return removed;
+}
 
 export function getLocalGamesSetup(): LocalGamesSetupStatus {
   const gamesRoot = getSetting('local.gamesRoot')?.trim() ?? '';
@@ -129,9 +179,10 @@ export async function scanLocalGamesFolder(): Promise<LocalGamesScanResult> {
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     if (entry.name.startsWith('.')) continue;
+    if (isNonGameLocal(entry.name)) continue;
     const gameDir = path.join(root, entry.name);
     const exe = await pickBestExe(gameDir);
-    if (!exe) continue;
+    if (!exe || isNonGameLocal(exe)) continue;
     items.push({
       externalId: `local:${gameDir.toLowerCase()}`,
       title: titleFromFolder(entry.name),
@@ -142,6 +193,7 @@ export async function scanLocalGamesFolder(): Promise<LocalGamesScanResult> {
     });
   }
 
+  purgeNonGameLocals();
   const { inserted } = getLibraryRepository().upsertMany('local', items);
   setSetting('local.gamesFound', String(items.length));
   return { found: items.length, added: inserted };

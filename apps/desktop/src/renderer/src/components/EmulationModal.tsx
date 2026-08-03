@@ -5,12 +5,15 @@ interface EmulationModalProps {
   onClose: () => void;
   onLaunch: (game: Game) => Promise<LaunchResult>;
   onChanged: () => void;
+  /** Painel do menu lateral (sem overlay). */
+  embedded?: boolean;
 }
 
 export default function EmulationModal({
   onClose,
   onLaunch,
   onChanged,
+  embedded = false,
 }: EmulationModalProps): JSX.Element {
   const [consoles, setConsoles] = useState<ConsoleView[]>([]);
   const [activeConsole, setActiveConsole] = useState<ConsoleView | null>(null);
@@ -107,14 +110,17 @@ export default function EmulationModal({
     setActiveConsole(c);
   };
 
+  const wrapClass = embedded ? 'retro-page' : 'modal-overlay';
+  const panelClass = embedded ? 'retro-page__panel' : 'modal modal--wide';
+
   if (activeConsole) {
     return (
-      <div className="modal-overlay" onClick={onClose}>
+      <div className={wrapClass} onClick={embedded ? undefined : onClose}>
         <div
-          className="modal modal--wide"
-          onClick={(e) => e.stopPropagation()}
-          role="dialog"
-          aria-modal="true"
+          className={panelClass}
+          onClick={embedded ? undefined : (e) => e.stopPropagation()}
+          role={embedded ? 'region' : 'dialog'}
+          aria-modal={embedded ? undefined : true}
         >
           <div className="modal__header">
             <button type="button" className="modal__back" onClick={() => setActiveConsole(null)}>
@@ -124,9 +130,11 @@ export default function EmulationModal({
               {activeConsole.name}{' '}
               <span className="modal__sub">({activeConsole.gamesCount} jogos)</span>
             </h2>
-            <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
-              ×
-            </button>
+            {!embedded && (
+              <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
+                ×
+              </button>
+            )}
           </div>
 
           <div className="emulation__settings">
@@ -216,19 +224,21 @@ export default function EmulationModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className={wrapClass} onClick={embedded ? undefined : onClose}>
       <div
-        className="modal modal--wide"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
+        className={panelClass}
+        onClick={embedded ? undefined : (e) => e.stopPropagation()}
+        role={embedded ? 'region' : 'dialog'}
+        aria-modal={embedded ? undefined : true}
       >
         <div className="modal__header">
-          <h2>Emulação</h2>
-          <span className="modal__sub">Selecione um console para ver seus jogos</span>
-          <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
-            ×
-          </button>
+          <h2>Consoles</h2>
+          <span className="modal__sub">Entre num console para ver os jogos / ROMs</span>
+          {!embedded && (
+            <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
+              ×
+            </button>
+          )}
         </div>
         <div className="emulation__consoles">
           {consoles.map((c) => {

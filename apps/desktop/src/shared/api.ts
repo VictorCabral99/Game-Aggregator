@@ -236,6 +236,8 @@ export interface RetroSetupStatus {
   emulatorsRoot: string;
   romsConfigured: boolean;
   emulatorsDetected: number;
+  lastScanFound?: number;
+  lastScanAdded?: number;
 }
 
 export interface LocalGamesSetupStatus {
@@ -278,8 +280,32 @@ export interface RatingsSyncResult {
   updated: number;
   skippedFresh: number;
   noKey: boolean;
+  covers?: number;
   error?: string;
 }
+
+/** Eventos do stream de enriquecimento (capa + notas), estilo NDJSON da main. */
+export type EnrichEvent =
+  | { type: 'start'; total: number }
+  | {
+      type: 'item';
+      index: number;
+      total: number;
+      gameId: string;
+      title: string;
+      coverOk: boolean;
+      coverPath: string | null;
+      summary: RatingsSummary | null;
+      skipped?: boolean;
+    }
+  | {
+      type: 'done';
+      updated: number;
+      covers: number;
+      skippedFresh: number;
+      noKey: boolean;
+    }
+  | { type: 'error'; message: string };
 
 export interface PriceSnapshot {
   id: string;
@@ -460,6 +486,12 @@ export interface DesktopApi {
   ratingsForGame(gameId: string): Promise<RatingsSummary | null>;
   ratingsForLibrary(): Promise<Record<string, RatingsSummary | null>>;
   ratingsSyncAll(): Promise<RatingsSyncResult>;
+  ratingsEnrichStream(opts?: {
+    gameIds?: string[];
+    force?: boolean;
+    maxGames?: number;
+  }): Promise<RatingsSyncResult & { covers: number }>;
+  onLibraryEnrichProgress(cb: (event: EnrichEvent) => void): () => void;
   ratingsSettings(): Promise<{ rawgKey: string; steamKey: string }>;
   wishlistList(): Promise<WishlistEntry[]>;
   wishlistAdd(input: WishlistAddInput): Promise<WishlistEntry>;
@@ -490,6 +522,9 @@ export interface DesktopApi {
   telemetrySet(enabled: boolean): Promise<{ enabled: boolean }>;
   updaterCheck(): Promise<UpdateCheckResult>;
   updaterDownload(): Promise<UpdateCheckResult>;
+  windowIsFullscreen(): Promise<boolean>;
+  windowSetFullscreen(on: boolean): Promise<boolean>;
+  windowToggleFullscreen(): Promise<boolean>;
   // Auth
   authGetCurrentUser(): Promise<User | null>;
   authGetGoogleAuthUrl(): Promise<GoogleAuthStartResult>;
