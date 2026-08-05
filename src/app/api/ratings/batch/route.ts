@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireUserId, sleep, mapPool } from '@/lib/auth-helpers';
-import { RAWGAPI } from '@/lib/rawg-api';
 import { SteamAPI } from '@/lib/steam-api';
 import { createRatingsFileLog } from '@/lib/ratings-log';
 import { prisma } from '@/lib/prisma';
@@ -8,9 +7,8 @@ import { prisma } from '@/lib/prisma';
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const DELAY_MS = 100;
+const DELAY_MS = 150;
 const STEAM_CONCURRENCY = 3;
-const RAWG_CONCURRENCY = 2;
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000;
 
 type TimingBucket = 'steamLookup' | 'steam' | 'rawg' | 'save';
@@ -99,13 +97,6 @@ export async function POST(request: NextRequest) {
   const auth = await requireUserId();
   if ('error' in auth) return auth.error;
 
-  if (!process.env.RAWG_API_KEY) {
-    return NextResponse.json(
-      { error: 'RAWG_API_KEY is not configured' },
-      { status: 503 }
-    );
-  }
-
   const body = await request.json().catch(() => ({}));
   const force = Boolean(body?.force);
 
@@ -117,7 +108,6 @@ export async function POST(request: NextRequest) {
 
   const staleCutoff = Date.now() - FRESH_MS;
   const steamQueue: typeof games = [];
-  const rawgQueue: typeof games = [];
   let skippedFresh = 0;
 
   for (const game of games) {
@@ -129,50 +119,42 @@ export async function POST(request: NextRequest) {
     if (!gameName || /^[0-9a-f]{32}$/i.test(gameName)) continue;
 
     const steamRow = ratingOf(game.ratings, 'steam');
-    const rawgRow = ratingOf(game.ratings, 'rawg');
-    const metaRow = ratingOf(game.ratings, 'metacritic');
-
     const steamFresh = !force && isFreshUseful(steamRow, staleCutoff);
-    const rawgFresh =
-      !force &&
-      (isFreshUseful(rawgRow, staleCutoff) ||
-        isFreshUseful(metaRow, staleCutoff));
 
-    if (steamFresh && rawgFresh) {
+    // Temporário: só Steam (RAWG/Meta desligado)
+    if (steamFresh) {
       skippedFresh += 1;
       continue;
     }
-    if (!steamFresh) steamQueue.push(game);
-    if (!rawgFresh) rawgQueue.push(game);
+    steamQueue.push(game);
   }
 
   const steam = new SteamAPI(process.env.STEAM_API_KEY || 'unused');
-  const rawg = new RAWGAPI(process.env.RAWG_API_KEY);
   const fileLog = await createRatingsFileLog();
 
   return ndjsonResponse(async (send) => {
     const totalSteam = steamQueue.length;
-    const totalRawg = rawgQueue.length;
-    const totalWork = totalSteam + totalRawg;
+    const totalRawg = 0;
+    const totalWork = totalSteam;
 
     fileLog.line(
-      `start · steamQueue=${totalSteam} rawgQueue=${totalRawg} skippedFresh=${skippedFresh}`
+      `start · steamQueue=${totalSteam} rawgQueue=0 (disabled) skippedFresh=${skippedFresh}`
     );
+    void fileLog.flush();
 
     send({
       type: 'meta',
       totalEligible: totalWork,
       steamTotal: totalSteam,
-      rawgTotal: totalRawg,
+      rawgTotal: 0,
       skippedFresh,
       phase: 'steam' as Phase,
       logFile: fileLog.relativePath,
       message:
         totalWork > 0
-          ? `Fase Steam: ${totalSteam} · depois RAWG/Meta: ${totalRawg}` +
-            (skippedFresh > 0 ? ` · ${skippedFresh} frescos` : '')
+          ? `Buscando Steam em ${totalSteam} jogos`
           : skippedFresh > 0
-            ? `Nada pendente — ${skippedFresh} já com notas recentes`
+            ? `Nada pendente — ${skippedFresh} com Steam recente`
             : 'Nenhuma nota pendente',
     });
 
@@ -182,6 +164,8 @@ export async function POST(request: NextRequest) {
         type: 'done',
         updated: 0,
         totalEligible: 0,
+        steamTotal: 0,
+        rawgTotal: 0,
         logFile: fileLog.relativePath,
       });
       return;
@@ -283,7 +267,11 @@ export async function POST(request: NextRequest) {
             steamAppId = found.appid;
             steamMatchedName = found.matchedName;
             fileLog.line(
-              `steam · ${gameName} · lookup ${steamAppId ? steamAppId : 'MISS'} · ${ms}ms`
+              `steam · ${gameName} · lookup ${
+                steamAppId ? steamAppId : 'MISS'
+              } · match=${steamMatchedName || '-'} · score=${
+                found.score ?? '-'
+              } · q="${found.query || gameName}" · ${ms}ms`
             );
           }
 
@@ -403,124 +391,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // ─── Fase 2: RAWG / Metacritic (mais lenta, por último, paralela) ─
-    completed = 0;
-    if (totalRawg > 0) {
-      send({
-        type: 'phase',
-        phase: 'rawg',
-        message: `Fase RAWG/Meta — ${totalRawg} jogos (em paralelo)`,
-        current: 0,
-        total: totalRawg,
-      });
-
-      await mapPool(rawgQueue, RAWG_CONCURRENCY, async (game) => {
-        let gameName = 'Jogo';
-        try {
-          const gameData =
-            typeof game.gameData === 'string'
-              ? JSON.parse(game.gameData)
-              : game.gameData;
-          gameName = String(gameData.name || gameData.title || '');
-          if (!gameName) {
-            completed += 1;
-            return;
-          }
-
-          send({
-            type: 'stage',
-            phase: 'rawg',
-            gameId: game.id,
-            title: gameName,
-            stage: 'rawg',
-            message: `${gameName} — RAWG/Meta`,
-            current: completed,
-            total: totalRawg,
-          });
-          await sleep(10);
-
-          // Tentativa precisa; se miss, ampla
-          let resolved = (
-            await timed(gameName, 'rawg', 'rawg', () =>
-              rawg.resolveRatingsForTitle(gameName, { precise: true })
-            )
-          ).value;
-
-          if (!resolved.matchedName) {
-            resolved = (
-              await timed(gameName, 'rawg', 'rawg', () =>
-                rawg.resolveRatingsForTitle(gameName, { precise: false })
-              )
-            ).value;
-          }
-
-          await timed(gameName, 'rawg', 'save', async () => {
-            for (const source of ['metacritic', 'rawg'] as const) {
-              const rating =
-                source === 'metacritic' ? resolved.metacritic : resolved.rawg;
-              await prisma.gameRating.upsert({
-                where: {
-                  gameLibraryId_source: {
-                    gameLibraryId: game.id,
-                    source,
-                  },
-                },
-                update: {
-                  rating,
-                  lastUpdated: new Date(),
-                },
-                create: {
-                  gameLibraryId: game.id,
-                  source,
-                  rating,
-                },
-              });
-            }
-          });
-
-          completed += 1;
-          const hit =
-            (resolved.rawg !== null && resolved.rawg > 0) ||
-            (resolved.metacritic !== null && resolved.metacritic > 0);
-          if (hit) updated += 1;
-
-          const parts: string[] = [];
-          if (resolved.metacritic && resolved.metacritic > 0) {
-            parts.push(`Meta ${resolved.metacritic}`);
-          }
-          if (resolved.rawg && resolved.rawg > 0) {
-            const rawgDisp =
-              resolved.rawg <= 5
-                ? Math.round(resolved.rawg * 20 * 10) / 10
-                : resolved.rawg;
-            parts.push(`RAWG ${rawgDisp}`);
-          }
-
-          send({
-            type: 'item',
-            phase: 'rawg',
-            gameId: game.id,
-            title: gameName,
-            matchedName: resolved.matchedName,
-            rawg: resolved.rawg,
-            metacritic: resolved.metacritic,
-            steam: null,
-            message:
-              parts.length > 0
-                ? `${gameName} · ${parts.join(' · ')}`
-                : `${gameName} — sem RAWG/Meta`,
-            current: completed,
-            total: totalRawg,
-          });
-
-          await sleep(DELAY_MS);
-        } catch (error) {
-          completed += 1;
-          fileLog.line(`rawg · ${gameName} · ERROR · ${String(error)}`);
-          console.error('RAWG phase error:', error);
-        }
-      });
-    }
+    // Fase 2 RAWG/Meta desligada por enquanto
+    fileLog.line('rawg · skipped · disabled');
 
     await prisma.user.update({
       where: { id: auth.userId },

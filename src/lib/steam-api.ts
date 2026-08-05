@@ -241,46 +241,145 @@ export class SteamAPI {
   }
 
   /**
-   * Resolve Steam appid by title via Store search (for links / reviews).
+   * Resolve Steam appid by title.
+   * Tenta variantes do nome + SearchApps (community) e storesearch.
    */
   async findAppIdByTitle(title: string): Promise<{
     appid: number | null;
     matchedName: string | null;
+    score?: number;
+    query?: string;
   }> {
-    const q = title.trim();
-    if (!q) return { appid: null, matchedName: null };
+    const terms = steamSearchTerms(title);
+    if (terms.length === 0) return { appid: null, matchedName: null };
 
-    try {
-      const response = await axios.get(`${STEAM_STORE_BASE}/api/storesearch/`, {
-        params: { term: q, l: 'english', cc: 'US' },
-        timeout: 5000,
-        validateStatus: () => true,
-      });
+    let best: {
+      id: number;
+      name: string;
+      score: number;
+      query: string;
+    } | null = null;
 
-      const items = (response.data?.items || []) as {
-        type?: string;
-        name?: string;
-        id?: number;
-      }[];
+    const consider = (
+      candidateName: string,
+      candidateId: number,
+      query: string
+    ) => {
+      // Pontua contra o título original e contra o termo buscado
+      const score = Math.max(
+        titleMatchScore(title, candidateName),
+        titleMatchScore(query, candidateName)
+      );
+      if (!best || score > best.score) {
+        best = { id: candidateId, name: candidateName, score, query };
+      }
+    };
 
-      let best: { id: number; name: string; score: number } | null = null;
-      for (const item of items) {
-        if (item.type && item.type !== 'app') continue;
-        if (!item.id || !item.name) continue;
-        const score = titleMatchScore(q, item.name);
-        if (!best || score > best.score) {
-          best = { id: item.id, name: item.name, score };
+    for (const term of terms) {
+      // 1) Community SearchApps — costuma achar melhor que storesearch
+      try {
+        const response = await axios.get(
+          `https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(term)}`,
+          {
+            timeout: 8000,
+            validateStatus: () => true,
+            headers: { 'Accept-Language': 'en' },
+          }
+        );
+        const rows = Array.isArray(response.data) ? response.data : [];
+        for (const row of rows) {
+          const id = Number(row?.appid ?? row?.id);
+          const name = String(row?.name || '').trim();
+          if (!id || !name) continue;
+          consider(name, id, term);
         }
+      } catch {
+        // fallback storesearch
       }
 
-      if (!best || best.score < 100) {
-        return { appid: null, matchedName: null };
+      if (best && best.score >= 800) break;
+
+      // 2) Store search
+      try {
+        const response = await axios.get(
+          `${STEAM_STORE_BASE}/api/storesearch/`,
+          {
+            params: { term, l: 'english', cc: 'US' },
+            timeout: 8000,
+            validateStatus: () => true,
+          }
+        );
+
+        const items = (response.data?.items || []) as {
+          type?: string;
+          name?: string;
+          id?: number;
+        }[];
+
+        for (const item of items) {
+          if (item.type && item.type !== 'app') continue;
+          const id = Number(item.id);
+          const name = String(item.name || '').trim();
+          if (!id || !name) continue;
+          consider(name, id, term);
+        }
+      } catch (error) {
+        console.error('Steam store search error:', error);
       }
 
-      return { appid: best.id, matchedName: best.name };
-    } catch (error) {
-      console.error('Steam store search error:', error);
-      return { appid: null, matchedName: null };
+      if (best && best.score >= 800) break;
     }
+
+    // 300 ≈ overlap forte de tokens; 600 = substring; 800+ = prefix/exato
+    if (!best || best.score < 300) {
+      return {
+        appid: null,
+        matchedName: best?.name ?? null,
+        score: best?.score,
+        query: best?.query ?? terms[0],
+      };
+    }
+
+    return {
+      appid: best.id,
+      matchedName: best.name,
+      score: best.score,
+      query: best.query,
+    };
   }
 }
+
+/** Gera termos de busca mais “limpos” a partir do título da loja. */
+export function steamSearchTerms(title: string): string[] {
+  const terms: string[] = [];
+  const push = (raw: string) => {
+    const s = raw
+      .replace(/™|®|©/g, '')
+      .replace(/[_/]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (s.length >= 2 && !terms.some((t) => t.toLowerCase() === s.toLowerCase())) {
+      terms.push(s);
+    }
+  };
+
+  push(title);
+  // Remove (Deluxe Edition), [Windows], etc.
+  push(title.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' '));
+  // Antes de ":" — "Game: Subtitle" → "Game"
+  const colon = title.split(':')[0];
+  if (colon && colon.trim().length >= 3) push(colon);
+  // Antes de traço longo / hífen isolado
+  const dash = title.split(/\s+[—–|-]\s+/)[0];
+  if (dash && dash.trim().length >= 3) push(dash);
+  // Remove edições comuns
+  push(
+    title.replace(
+      /\b(game of the year|goty|deluxe|ultimate|definitive|complete|gold|premium|legendary|enhanced|remastered|hd|standard|edition|director'?s cut|anniversary)\b/gi,
+      ' '
+    )
+  );
+
+  return terms.slice(0, 5);
+}
+

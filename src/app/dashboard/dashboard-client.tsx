@@ -5,7 +5,7 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 import { useSearchParams, useRouter } from 'next/navigation';
 
 type Tab = 'library' | 'wishlist';
-type LibrarySort = 'name' | 'rawg' | 'metacritic' | 'steam';
+type LibrarySort = 'name' | 'steam';
 type WishlistSort = 'name' | 'price' | 'discount';
 
 const DEFAULT_VISIBLE_STORES: Record<string, boolean> = {
@@ -416,7 +416,7 @@ function ratingValue(ratings: GameRating[] | undefined, source: string): number 
 function compareByRating(
   a: LibraryGame,
   b: LibraryGame,
-  source: 'rawg' | 'metacritic' | 'steam',
+  source: 'steam',
   dir: number
 ) {
   const ar = ratingValue(a.ratings, source);
@@ -445,29 +445,14 @@ function compareByRating(
 function pickDisplayRating(
   ratings: GameRating[] | undefined,
   sort: LibrarySort
-): { value: number; source: 'rawg' | 'metacritic' | 'steam' } | null {
-  const rawg = ratingValue(ratings, 'rawg');
-  const metacritic = ratingValue(ratings, 'metacritic');
+): { value: number; source: 'steam' } | null {
   const steam = ratingValue(ratings, 'steam');
 
-  if (sort === 'rawg') {
-    return rawg !== null ? { value: rawg, source: 'rawg' } : null;
-  }
-  if (sort === 'metacritic') {
-    return metacritic !== null ? { value: metacritic, source: 'metacritic' } : null;
-  }
-  if (sort === 'steam') {
+  if (sort === 'steam' || sort === 'name') {
     return steam !== null ? { value: steam, source: 'steam' } : null;
   }
 
-  // Por nome: mostra a maior nota disponível (todas na escala ~0–100)
-  const candidates: { value: number; source: 'rawg' | 'metacritic' | 'steam' }[] =
-    [];
-  if (metacritic !== null) candidates.push({ value: metacritic, source: 'metacritic' });
-  if (rawg !== null) candidates.push({ value: rawg, source: 'rawg' });
-  if (steam !== null) candidates.push({ value: steam, source: 'steam' });
-  if (candidates.length === 0) return null;
-  return candidates.reduce((best, cur) => (cur.value > best.value ? cur : best));
+  return null;
 }
 
 function storeLabel(platform: string) {
@@ -485,7 +470,6 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false);
   const [syncingWishlist, setSyncingWishlist] = useState(false);
   const [fetchingRatings, setFetchingRatings] = useState(false);
-  const [quietEnriching, setQuietEnriching] = useState(false);
   const [fetchingDeals, setFetchingDeals] = useState(false);
   const [progress, setProgress] = useState<{
     label: string;
@@ -571,7 +555,6 @@ export default function Dashboard() {
     setLibrarySort('steam');
     setSortDir('desc');
     setFetchingRatings(true);
-    setQuietEnriching(false);
     clearLooking();
     setFreshIds([]);
     setMessage(null);
@@ -582,16 +565,19 @@ export default function Dashboard() {
     let steamDone = 0;
     let rawgDone = 0;
     let updated = 0;
-    let quietRawg = false;
+    /** Steam primeiro; só depois a UI mostra RAWG/Meta. */
+    let uiPhase: 'steam' | 'rawg' = 'steam';
     const inFlightFrac = new Map<string, number>();
     let timingSummary: TimingSummary | null = null;
     let bottleneck: { label: string; avgMs: number; maxMs: number } | null =
       null;
     const timingLog: Array<{ title: string; bucket: string; ms: number }> = [];
 
-    // Progresso visual só da Steam — RAWG/Meta roda quieto depois
-    const overallDone = () => steamDone;
-    const overallTotal = () => Math.max(1, steamTotal || totalEligible);
+    const overallDone = () => (uiPhase === 'rawg' ? rawgDone : steamDone);
+    const overallTotal = () =>
+      uiPhase === 'rawg'
+        ? Math.max(1, rawgTotal)
+        : Math.max(1, steamTotal || totalEligible);
 
     const pushProgress = (
       label: string,
@@ -615,31 +601,37 @@ export default function Dashboard() {
       setProgress({
         label,
         current: overallDone(),
-        total: steamTotal || totalEligible,
+        total:
+          uiPhase === 'rawg' ? rawgTotal : steamTotal || totalEligible,
         percent,
-        tone: 'indigo',
+        tone: uiPhase === 'rawg' ? 'amber' : 'indigo',
         feed,
         timings: timingSummary,
         bottleneck,
       });
     };
 
-    const enterQuietRawg = (label?: string) => {
-      if (quietRawg) return;
-      quietRawg = true;
+    const enterRawgPhase = (label?: string) => {
+      if (uiPhase === 'rawg') return;
+      uiPhase = 'rawg';
       inFlightFrac.clear();
       clearLooking();
-      setFetchingRatings(false);
-      setQuietEnriching(true);
-      const doneLabel =
+      setFetchingRatings(true);
+      const phaseLabel =
         label ||
-        (steamDone > 0
-          ? `Steam ok — ${steamDone} jogos`
-          : 'Steam ok — enriquecendo em segundo plano');
-      feed = appendFeed(feed, [doneLabel]);
-      pushProgress(doneLabel, { done: true });
-      setMessage(doneLabel);
-      setTimeout(() => setProgress(null), 1800);
+        (rawgTotal > 0
+          ? `RAWG/Meta — ${rawgTotal} jogos`
+          : 'RAWG/Meta…');
+      if (steamTotal > 0 || steamDone > 0) {
+        feed = appendFeed(feed, [
+          `Steam ok — ${steamDone || steamTotal} jogos`,
+          phaseLabel,
+        ]);
+      } else {
+        feed = appendFeed(feed, [phaseLabel]);
+      }
+      pushProgress(phaseLabel);
+      setMessage(phaseLabel);
     };
 
     const recordTiming = (event: Record<string, unknown>) => {
@@ -665,7 +657,7 @@ export default function Dashboard() {
       const response = await fetch('/api/ratings/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: false }),
+        body: JSON.stringify({ force: false, bypassMissCooldown: true }),
       });
 
       if (!response.ok) {
@@ -689,25 +681,31 @@ export default function Dashboard() {
           steamTotal = Number(event.steamTotal) || 0;
           rawgTotal = Number(event.rawgTotal) || 0;
           const skippedFresh = Number(event.skippedFresh) || 0;
+          const rawgOnly = Number(event.rawgOnlyAlreadySteam) || 0;
           const metaMsg =
             streamMsg ||
             (steamTotal > 0
-              ? `Buscando Steam em ${steamTotal} jogos`
+              ? `Buscando Steam em ${steamTotal} jogos` +
+                (rawgTotal > 0 ? ` · depois RAWG/Meta ${rawgTotal}` : '')
               : totalEligible > 0
-                ? 'Steam ok — enriquecendo em segundo plano'
+                ? `RAWG/Meta em ${rawgTotal} jogos` +
+                  (rawgOnly > 0 ? ` (${rawgOnly} já com Steam)` : '')
                 : skippedFresh > 0
                   ? `Nenhuma pendente — ${skippedFresh} com nota recente`
                   : 'Nenhuma nota pendente');
           feed = appendFeed(feed, [metaMsg]);
-          pushProgress(metaMsg, { done: totalEligible === 0 });
           if (totalEligible === 0) {
+            pushProgress(metaMsg, { done: true });
             setMessage(
               skippedFresh > 0
                 ? `Nenhuma nota pendente — ${skippedFresh} jogos já têm nota recente`
                 : 'Nenhuma nota pendente (já atualizadas nesta semana)'
             );
           } else if (steamTotal === 0 && rawgTotal > 0) {
-            enterQuietRawg(metaMsg);
+            // Steam já ok — UI já entra na fase RAWG/Meta
+            enterRawgPhase(metaMsg);
+          } else {
+            pushProgress(metaMsg);
           }
           return;
         }
@@ -715,7 +713,7 @@ export default function Dashboard() {
         if (type === 'phase') {
           const phase = String(event.phase || '');
           if (phase === 'rawg') {
-            enterQuietRawg();
+            enterRawgPhase(streamMsg || undefined);
             return;
           }
           const label = streamMsg || 'Buscando reviews Steam…';
@@ -726,7 +724,10 @@ export default function Dashboard() {
 
         if (type === 'looking' || type === 'stage') {
           recordTiming(event);
-          if (quietRawg) return;
+          const phase = String(event.phase || uiPhase);
+          // Só mostra stages da fase ativa na UI
+          if (phase === 'rawg' && uiPhase !== 'rawg') return;
+          if (phase === 'steam' && uiPhase === 'rawg') return;
 
           const title = String(event.title || 'Jogo');
           const gameId = typeof event.gameId === 'string' ? event.gameId : null;
@@ -763,10 +764,8 @@ export default function Dashboard() {
           else steamDone = current;
 
           if (gameId) {
-            if (!quietRawg) {
-              setLooking(gameId, false);
-              inFlightFrac.delete(gameId);
-            }
+            setLooking(gameId, false);
+            inFlightFrac.delete(gameId);
             setGames((prev) =>
               prev.map((g) => {
                 if (g.id !== gameId) return g;
@@ -801,12 +800,14 @@ export default function Dashboard() {
                 });
               })
             );
-            if (!quietRawg) markFresh(gameId);
+            markFresh(gameId);
           }
 
           updated += 1;
 
-          if (quietRawg || phase === 'rawg') return;
+          // Steam items só na UI da Steam; RAWG só depois que a fase UI mudou
+          if (phase === 'rawg' && uiPhase !== 'rawg') return;
+          if (phase === 'steam' && uiPhase === 'rawg') return;
 
           const resultLine =
             streamMsg ||
@@ -821,7 +822,11 @@ export default function Dashboard() {
             ])[0];
 
           feed = appendFeed(feed, [resultLine]);
-          pushProgress(`Steam: ${steamDone}/${steamTotal}`);
+          pushProgress(
+            uiPhase === 'rawg'
+              ? `RAWG/Meta: ${rawgDone}/${rawgTotal}`
+              : `Steam: ${steamDone}/${steamTotal}`
+          );
           return;
         }
 
@@ -875,22 +880,6 @@ export default function Dashboard() {
           if (logFile) console.log('[notas] arquivo', logFile);
           console.groupEnd();
 
-          // UI já “terminou” com a Steam; RAWG/Meta só enriquece em silêncio
-          if (quietRawg) {
-            setQuietEnriching(false);
-            setProgress(null);
-            setMessage(
-              steamDone > 0
-                ? `Steam ok — ${steamDone} jogos` +
-                  (logFile ? ` · ${logFile}` : '')
-                : updated > 0
-                  ? `Notas atualizadas em ${updated} jogos` +
-                    (logFile ? ` · ${logFile}` : '')
-                  : 'Nenhuma nota pendente (já atualizadas nesta semana)'
-            );
-            return;
-          }
-
           const doneMsg =
             streamMsg ||
             (updated > 0
@@ -920,18 +909,12 @@ export default function Dashboard() {
       setMessage('Erro ao buscar notas');
     } finally {
       setFetchingRatings(false);
-      setQuietEnriching(false);
       clearLooking();
       setTimeout(() => setProgress(null), 5000);
     }
   }, [games.length, loadData, markFresh, setLooking, clearLooking]);
 
-  const busy =
-    syncing ||
-    syncingWishlist ||
-    fetchingRatings ||
-    quietEnriching ||
-    fetchingDeals;
+  const busy = syncing || syncingWishlist || fetchingRatings || fetchingDeals;
 
   const runDealsFetch = useCallback(async (opts?: { ignoreLocalEmpty?: boolean; force?: boolean }) => {
     if (wishlist.length === 0 && !opts?.ignoreLocalEmpty) {
@@ -1363,12 +1346,7 @@ export default function Dashboard() {
         return an.localeCompare(bn, 'pt-BR') * dir;
       }
 
-      const source =
-        librarySort === 'rawg'
-          ? 'rawg'
-          : librarySort === 'metacritic'
-            ? 'metacritic'
-            : 'steam';
+      const source = 'steam' as const;
       return compareByRating(a, b, source, dir);
     });
 
@@ -1557,7 +1535,6 @@ export default function Dashboard() {
                   [
                     ['steam', 'Steam %'],
                     ['steamLookup', 'Steam AppID'],
-                    ['rawg', 'RAWG/Meta'],
                     ['save', 'Gravar DB'],
                   ] as const
                 ).map(([key, name]) => {
@@ -1700,8 +1677,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div>
                   <p className="text-sm text-gray-400">
-                    Jogos que você tem — a nota segue o filtro ativo
-                    {librarySort === 'name' ? ' (maior entre RAWG/Meta/Steam)' : ''}
+                    Jogos que você tem — nota Steam %
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
                     Mostrando {visibleGames.length} de {games.length}
@@ -1721,8 +1697,6 @@ export default function Dashboard() {
                       className="bg-gray-700 text-white text-sm rounded px-3 py-2 min-w-[160px]"
                     >
                       <option value="steam">Reviews Steam %</option>
-                      <option value="metacritic">Nota Metacritic</option>
-                      <option value="rawg">Nota RAWG</option>
                       <option value="name">Nome</option>
                     </select>
                   </label>
@@ -1767,13 +1741,7 @@ export default function Dashboard() {
                   const stageLabel = lookingStages[game.id];
                   const justUpdated = freshIds.includes(game.id);
                   const sourceLabel =
-                    display?.source === 'rawg'
-                      ? 'RAWG'
-                      : display?.source === 'metacritic'
-                        ? 'Meta'
-                        : display?.source === 'steam'
-                          ? 'Steam'
-                          : '';
+                    display?.source === 'steam' ? 'Steam' : '';
                   return (
                     <div
                       key={game.id}
