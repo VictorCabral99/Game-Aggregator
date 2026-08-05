@@ -38,7 +38,13 @@ export default function AboutModal({ onClose }: Props): JSX.Element {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--about" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal--about"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-pad-root="1"
+      >
         <h2>Sobre</h2>
         <p>
           <strong>Game Aggregator Launcher</strong>

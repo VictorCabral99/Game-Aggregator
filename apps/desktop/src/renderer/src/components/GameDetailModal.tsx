@@ -83,7 +83,13 @@ export default function GameDetailModal({
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--detail" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal--detail"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-pad-root="1"
+      >
         {src && (
           <div className="modal__hero">
             <img src={src} alt="" />

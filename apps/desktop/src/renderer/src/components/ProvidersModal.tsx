@@ -72,7 +72,13 @@ export default function ProvidersModal({ onClose }: Props): JSX.Element {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--providers" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal--providers"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-pad-root="1"
+      >
         <h2>Providers</h2>
         <p className="hint">
           Steam usa scan local + protocolo próprio. Epic/GOG/Amazon usam sidecars em

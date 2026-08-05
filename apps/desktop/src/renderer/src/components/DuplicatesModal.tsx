@@ -39,7 +39,13 @@ export default function DuplicatesModal({ onClose, onMerged }: Props): JSX.Eleme
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--dupes" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal--dupes"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-pad-root="1"
+      >
         <h2>Possíveis duplicatas</h2>
         <p className="hint">
           Jogos com títulos semelhantes detectados. Aprove para juntar ou ignore se forem edições

@@ -89,7 +89,13 @@ export default function AccountsPanel({ onClose }: Props): JSX.Element {
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal--settings" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal--settings"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-pad-root="1"
+      >
         <div className="modal__header">
           <h2>Contas Conectadas</h2>
           <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">

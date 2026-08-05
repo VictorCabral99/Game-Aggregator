@@ -37,7 +37,7 @@ export default function OnboardingModal({
 
   return (
     <div className="modal-overlay" onClick={onSkip}>
-      <div className="modal modal--onboarding" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <div className="modal modal--onboarding" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" data-pad-root="1">
         <h2>Bem-vindo ao Launcher</h2>
         <p className="onboarding__lead">
           Biblioteca unificada com Steam, lojas, emulação, notas e wishlist — tudo em tela cheia.

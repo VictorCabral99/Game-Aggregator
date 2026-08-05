@@ -113,6 +113,19 @@ export default function EmulationModal({
   const wrapClass = embedded ? 'retro-page' : 'modal-overlay';
   const panelClass = embedded ? 'retro-page__panel' : 'modal modal--wide';
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (activeConsole) {
+        setActiveConsole(null);
+        return;
+      }
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeConsole, onClose]);
+
   if (activeConsole) {
     return (
       <div className={wrapClass} onClick={embedded ? undefined : onClose}>
@@ -121,6 +134,7 @@ export default function EmulationModal({
           onClick={embedded ? undefined : (e) => e.stopPropagation()}
           role={embedded ? 'region' : 'dialog'}
           aria-modal={embedded ? undefined : true}
+          data-pad-root={embedded ? undefined : '1'}
         >
           <div className="modal__header">
             <button type="button" className="modal__back" onClick={() => setActiveConsole(null)}>
@@ -230,6 +244,7 @@ export default function EmulationModal({
         onClick={embedded ? undefined : (e) => e.stopPropagation()}
         role={embedded ? 'region' : 'dialog'}
         aria-modal={embedded ? undefined : true}
+        data-pad-root={embedded ? undefined : '1'}
       >
         <div className="modal__header">
           <h2>Consoles</h2>

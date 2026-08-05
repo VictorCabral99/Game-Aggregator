@@ -32,7 +32,13 @@ export default function LoginModal({ onSuccess }: Props): JSX.Element {
   if (loading) {
     return (
       <div className="modal-backdrop">
-        <div className="modal modal--login" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal modal--login"
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          data-pad-root="1"
+        >
           <div className="modal__header">
             <h2>Game Aggregator</h2>
           </div>
@@ -47,7 +53,13 @@ export default function LoginModal({ onSuccess }: Props): JSX.Element {
 
   return (
     <div className="modal-backdrop">
-      <div className="modal modal--login" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal modal--login"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-pad-root="1"
+      >
         <div className="modal__header">
           <h2>Game Aggregator Launcher</h2>
         </div>

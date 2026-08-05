@@ -225,6 +225,7 @@ export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: Se
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
+        data-pad-root="1"
       >
         <div className="modal__header">
           <h2>Configurações</h2>

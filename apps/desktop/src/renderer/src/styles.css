@@ -1128,18 +1128,23 @@ body.tv-mode .header h1 {
   font-size: 1.5rem;
 }
 
-.filter-chip--focus {
-  outline: 3px solid var(--accent);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.35);
-}
-
+.filter-chip--focus,
 .side-nav__item--focus {
   outline: 3px solid var(--accent);
   outline-offset: 2px;
   box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.35);
 }
 
+/* Foco nativo quando o controle está ativo (navegação espacial) */
+body.gamepad-active :focus,
+body.gamepad-active :focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.35);
+}
+
+body.gamepad-active .card:focus,
+body.gamepad-active .card:focus-visible,
 .gamepad-active .card--selected {
   outline: 3px solid var(--accent);
   outline-offset: 2px;

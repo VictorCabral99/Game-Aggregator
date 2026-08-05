@@ -48,7 +48,9 @@ export default function GameCard({
     <button
       type="button"
       className={`card ${selected ? 'card--selected' : ''}`}
+      data-game-id={game.id}
       onClick={onSelect}
+      onFocus={onSelect}
       onDoubleClick={onOpen}
       title={game.title}
     >

@@ -52,10 +52,21 @@ export default function VirtualizedGameGrid({
       el.scrollTop = target;
     }
     rowVirtualizer.scrollToIndex(row, { align: 'center' });
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>('.grid-virtual .card--selected')?.focus({
+        preventScroll: true,
+      });
+    });
   }, [selected, safeCols, games.length, rowSize, rowVirtualizer]);
 
   return (
-    <div ref={parentRef} className="grid-virtual" role="grid" aria-rowcount={rowCount}>
+    <div
+      ref={parentRef}
+      className="grid-virtual"
+      role="grid"
+      aria-rowcount={rowCount}
+      data-pad-grid="1"
+    >
       <div
         className="grid-virtual__inner"
         style={{ height: `${rowVirtualizer.getTotalSize()}px` }}

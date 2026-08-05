@@ -29,6 +29,16 @@ import OnboardingModal from './components/OnboardingModal';
 import Toast from './components/Toast';
 import { useGamepadNav } from './hooks/useGamepadNav';
 import { setSoundsEnabled, uiBack, uiMove, uiSelect } from './lib/sounds';
+import {
+  activateFocused,
+  emitEscape,
+  ensureFocus,
+  focusSelectedCard,
+  gameIdFromFocusedCard,
+  getPadRoot,
+  isInsideGrid,
+  moveFocus,
+} from './lib/spatialFocus';
 
 type View =
   | { kind: 'library' }
@@ -71,10 +81,6 @@ export default function App(): JSX.Element {
   const [games, setGames] = useState<Game[]>([]);
   const [view, setView] = useState<View>({ kind: 'library' });
   const [selected, setSelected] = useState(0);
-  /** Zona de foco do controle: grade, filtros ou sidebar. */
-  const [padZone, setPadZone] = useState<'grid' | 'filters' | 'sidebar'>('grid');
-  const [padFilterIdx, setPadFilterIdx] = useState(0);
-  const [padSidebarIdx, setPadSidebarIdx] = useState(0);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [steam, setSteam] = useState<SteamStatus | null>(null);
   const [stores, setStores] = useState<Partial<Record<StoreId, StoreStatus | null>>>({});
@@ -544,54 +550,12 @@ export default function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKey);
   }, [view, visibleGames, selected, cols]);
 
-  const SIDEBAR_PAD = [
-    { id: 'library' as const, run: () => goSection('library') },
-    { id: 'stores' as const, run: () => goSection('stores') },
-    { id: 'wishlist' as const, run: () => goSection('wishlist') },
-    { id: 'retro' as const, run: () => goSection('retro') },
-    { id: 'settings' as const, run: () => setView({ kind: 'settings' }) },
-  ];
-
-  const FILTER_PAD = [
-    ...FILTER_OPTIONS.map((f) => ({
-      id: f.id,
-      label: f.label,
-      apply: () => {
-        setFilter(f.id);
-        setSelected(0);
-        setPadZone('grid');
-      },
-    })),
-    {
-      id: 'installed',
-      label: 'Instalados',
-      apply: () => {
-        setInstalledOnly((v) => !v);
-        setSelected(0);
-      },
-    },
-    {
-      id: 'rating80',
-      label: 'Nota ≥ 80',
-      apply: () => {
-        setMinRating((v) => (v === 80 ? 0 : 80));
-        setSelected(0);
-      },
-    },
-  ];
-
   const padNavRef = useRef({
     selected,
     visibleGames,
     cols,
     view,
     section,
-    padZone,
-    padFilterIdx,
-    padSidebarIdx,
-    filter,
-    installedOnly,
-    minRating,
   });
   padNavRef.current = {
     selected,
@@ -599,41 +563,56 @@ export default function App(): JSX.Element {
     cols,
     view,
     section,
-    padZone,
-    padFilterIdx,
-    padSidebarIdx,
-    filter,
-    installedOnly,
-    minRating,
   };
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      ensureFocus(getPadRoot());
+    });
+    return () => cancelAnimationFrame(id);
+  }, [view, section]);
 
   useGamepadNav({
     enabled: true,
     tvMode,
     onDeviceChange: (device) => {
       document.body.classList.toggle('gamepad-active', device === 'gamepad');
+      if (device === 'gamepad') {
+        requestAnimationFrame(() => ensureFocus(getPadRoot()));
+      }
     },
     onAction: (action) => {
       const n = padNavRef.current;
-      const inLibrary = n.view.kind === 'library' && n.section === 'library';
+      const inLibraryShell = n.view.kind === 'library' && n.section === 'library';
+      const active = document.activeElement as HTMLElement | null;
+      const inGrid = isInsideGrid(active);
 
       if (action === 'back') {
         uiBack();
-        if (n.view.kind !== 'library') {
-          setView({ kind: 'library' });
-          return;
-        }
-        if (n.padZone !== 'grid') {
-          setPadZone('grid');
-          return;
-        }
-        if (n.section !== 'library') goSection('library');
+        const beforeView = n.view.kind;
+        const beforeSection = n.section;
+        emitEscape();
+        // Fallback se Escape não fechou overlay / mudou seção
+        requestAnimationFrame(() => {
+          const cur = padNavRef.current;
+          if (beforeView !== 'library' && cur.view.kind === beforeView) {
+            setView({ kind: 'library' });
+            return;
+          }
+          if (
+            beforeView === 'library' &&
+            beforeSection !== 'library' &&
+            cur.section === beforeSection
+          ) {
+            goSection('library');
+          }
+        });
         return;
       }
 
       if (action === 'search') {
         goSection('library');
-        setPadZone('grid');
+        setView({ kind: 'library' });
         searchRef.current?.focus();
         searchRef.current?.select();
         return;
@@ -647,76 +626,66 @@ export default function App(): JSX.Element {
         return;
       }
 
-      if (!inLibrary) return;
+      // Grade virtualizada: navegação por índice (DOM só monta linhas visíveis)
+      const useGridNav =
+        inLibraryShell &&
+        (inGrid ||
+          active?.classList.contains('card') ||
+          !active ||
+          active === document.body);
 
-      // —— Sidebar ——
-      if (n.padZone === 'sidebar') {
-        if (action === 'up') {
-          setPadSidebarIdx((i) => Math.max(0, i - 1));
-          uiMove();
-        } else if (action === 'down') {
-          setPadSidebarIdx((i) => Math.min(SIDEBAR_PAD.length - 1, i + 1));
-          uiMove();
-        } else if (action === 'right') {
-          setPadZone('filters');
-          uiMove();
-        } else if (action === 'confirm' || action === 'open') {
-          uiSelect();
-          SIDEBAR_PAD[n.padSidebarIdx]?.run();
-        }
-        return;
-      }
-
-      // —— Filtros ——
-      if (n.padZone === 'filters') {
+      if (useGridNav && (action === 'left' || action === 'right' || action === 'up' || action === 'down')) {
+        const max = Math.max(n.visibleGames.length - 1, 0);
         if (action === 'left') {
-          if (n.padFilterIdx === 0) {
-            setPadZone('sidebar');
+          if (n.selected % n.cols === 0) {
+            // Sai da grade → foco espacial (sidebar / filtros)
+            moveFocus('left');
           } else {
-            setPadFilterIdx((i) => Math.max(0, i - 1));
+            setSelected((i) => Math.max(i - 1, 0));
           }
-          uiMove();
         } else if (action === 'right') {
-          setPadFilterIdx((i) => Math.min(FILTER_PAD.length - 1, i + 1));
-          uiMove();
+          setSelected((i) => Math.min(i + 1, max));
         } else if (action === 'up') {
-          setPadZone('sidebar');
-          uiMove();
+          if (n.selected < n.cols) {
+            moveFocus('up');
+          } else {
+            setSelected((i) => Math.max(i - n.cols, 0));
+          }
         } else if (action === 'down') {
-          setPadZone('grid');
-          uiMove();
-        } else if (action === 'confirm' || action === 'open') {
-          uiSelect();
-          FILTER_PAD[n.padFilterIdx]?.apply();
+          setSelected((i) => Math.min(i + n.cols, max));
         }
+        uiMove();
+        requestAnimationFrame(() => focusSelectedCard());
         return;
       }
 
-      // —— Grade ——
-      if (action === 'left') {
-        if (n.selected % n.cols === 0) {
-          setPadZone('sidebar');
-        } else {
-          setSelected((i) => Math.max(i - 1, 0));
-        }
+      if (action === 'left' || action === 'right' || action === 'up' || action === 'down') {
+        moveFocus(action);
         uiMove();
-      } else if (action === 'right') {
-        setSelected((i) => Math.min(i + 1, Math.max(n.visibleGames.length - 1, 0)));
-        uiMove();
-      } else if (action === 'up') {
-        if (n.selected < n.cols) {
-          setPadZone('filters');
-        } else {
-          setSelected((i) => Math.max(i - n.cols, 0));
-        }
-        uiMove();
-      } else if (action === 'down') {
-        setSelected((i) => Math.min(i + n.cols, Math.max(n.visibleGames.length - 1, 0)));
-        uiMove();
-      } else if (action === 'confirm' || action === 'open') {
+        return;
+      }
+
+      if (action === 'confirm' || action === 'open') {
         uiSelect();
-        const game = n.visibleGames[n.selected];
-        if (game) setView({ kind: 'detail', gameId: game.id });
+        if (inLibraryShell) {
+          const fromDom = gameIdFromFocusedCard();
+          const onCard =
+            inGrid ||
+            Boolean(fromDom) ||
+            active?.classList.contains('card') ||
+            !active ||
+            active === document.body;
+          if (onCard) {
+            const game = fromDom
+              ? n.visibleGames.find((g) => g.id === fromDom) ?? n.visibleGames[n.selected]
+              : n.visibleGames[n.selected];
+            if (game) {
+              setView({ kind: 'detail', gameId: game.id });
+              return;
+            }
+          }
+        }
+        activateFocused();
       }
     },
   });
@@ -785,7 +754,7 @@ export default function App(): JSX.Element {
     view.kind === 'form' && view.gameId ? games.find((g) => g.id === view.gameId) ?? null : null;
 
   return (
-    <div className={`app-layout ${user ? 'app-layout--authed' : ''}`}>
+    <div className={`app-layout ${user ? 'app-layout--authed' : ''}`} data-pad-root={view.kind === 'library' && !detailGame ? '1' : undefined}>
       {user && (
         <nav className="side-nav" aria-label="Navegação principal">
           <div className="side-nav__brand">
@@ -794,9 +763,7 @@ export default function App(): JSX.Element {
           </div>
           <button
             type="button"
-            className={`side-nav__item ${section === 'library' ? 'side-nav__item--active' : ''} ${
-              padZone === 'sidebar' && padSidebarIdx === 0 ? 'side-nav__item--focus' : ''
-            }`}
+            className={`side-nav__item ${section === 'library' ? 'side-nav__item--active' : ''}`}
             onClick={() => goSection('library')}
           >
             <span className="side-nav__label">Jogos</span>
@@ -804,9 +771,7 @@ export default function App(): JSX.Element {
           </button>
           <button
             type="button"
-            className={`side-nav__item ${section === 'stores' ? 'side-nav__item--active' : ''} ${
-              padZone === 'sidebar' && padSidebarIdx === 1 ? 'side-nav__item--focus' : ''
-            }`}
+            className={`side-nav__item ${section === 'stores' ? 'side-nav__item--active' : ''}`}
             onClick={() => goSection('stores')}
           >
             <span className="side-nav__label">Lojas</span>
@@ -814,9 +779,7 @@ export default function App(): JSX.Element {
           </button>
           <button
             type="button"
-            className={`side-nav__item ${section === 'wishlist' ? 'side-nav__item--active' : ''} ${
-              padZone === 'sidebar' && padSidebarIdx === 2 ? 'side-nav__item--focus' : ''
-            }`}
+            className={`side-nav__item ${section === 'wishlist' ? 'side-nav__item--active' : ''}`}
             onClick={() => goSection('wishlist')}
           >
             <span className="side-nav__label">Wishlist</span>
@@ -824,9 +787,7 @@ export default function App(): JSX.Element {
           </button>
           <button
             type="button"
-            className={`side-nav__item ${section === 'retro' ? 'side-nav__item--active' : ''} ${
-              padZone === 'sidebar' && padSidebarIdx === 3 ? 'side-nav__item--focus' : ''
-            }`}
+            className={`side-nav__item ${section === 'retro' ? 'side-nav__item--active' : ''}`}
             onClick={() => goSection('retro')}
           >
             <span className="side-nav__label">Retro</span>
@@ -835,9 +796,7 @@ export default function App(): JSX.Element {
           <div className="side-nav__spacer" />
           <button
             type="button"
-            className={`side-nav__item side-nav__item--ghost ${
-              padZone === 'sidebar' && padSidebarIdx === 4 ? 'side-nav__item--focus' : ''
-            }`}
+            className="side-nav__item side-nav__item--ghost"
             onClick={() => setView({ kind: 'settings' })}
           >
             <span className="side-nav__label">Configurações</span>
@@ -1028,19 +987,16 @@ export default function App(): JSX.Element {
       )}
 
       <div className="filters" role="tablist" aria-label="Filtrar por plataforma">
-        {FILTER_OPTIONS.map(({ id, label }, fi) => (
+        {FILTER_OPTIONS.map(({ id, label }) => (
           <button
             key={id}
             type="button"
             role="tab"
             aria-selected={filter === id}
-            className={`filter-chip ${filter === id ? 'filter-chip--active' : ''} ${
-              padZone === 'filters' && padFilterIdx === fi ? 'filter-chip--focus' : ''
-            }`}
+            className={`filter-chip ${filter === id ? 'filter-chip--active' : ''}`}
             onClick={() => {
               setFilter(id);
               setSelected(0);
-              setPadZone('grid');
             }}
           >
             {label}
@@ -1053,11 +1009,7 @@ export default function App(): JSX.Element {
         ))}
         <button
           type="button"
-          className={`filter-chip ${installedOnly ? 'filter-chip--active' : ''} ${
-            padZone === 'filters' && padFilterIdx === FILTER_OPTIONS.length
-              ? 'filter-chip--focus'
-              : ''
-          }`}
+          className={`filter-chip ${installedOnly ? 'filter-chip--active' : ''}`}
           aria-pressed={installedOnly}
           onClick={() => {
             setInstalledOnly((v) => !v);
@@ -1071,11 +1023,7 @@ export default function App(): JSX.Element {
         </button>
         <button
           type="button"
-          className={`filter-chip ${minRating === 80 ? 'filter-chip--active' : ''} ${
-            padZone === 'filters' && padFilterIdx === FILTER_OPTIONS.length + 1
-              ? 'filter-chip--focus'
-              : ''
-          }`}
+          className={`filter-chip ${minRating === 80 ? 'filter-chip--active' : ''}`}
           aria-pressed={minRating === 80}
           onClick={() => {
             setMinRating((v) => (v === 80 ? 0 : 80));
@@ -1205,7 +1153,7 @@ export default function App(): JSX.Element {
         <VirtualizedGameGrid
           games={visibleGames}
           cols={cols}
-          selected={padZone === 'grid' ? selected : -1}
+          selected={selected}
           scores={Object.fromEntries(
             visibleGames.map((g) => [g.id, ratings[g.id]?.score ?? null])
           )}
@@ -1213,10 +1161,7 @@ export default function App(): JSX.Element {
           hideScores={hideNotes}
           cardHeight={Math.round(profileTokens.cardWidth * 1.45)}
           gap={profileTokens.cardGap}
-          onSelect={(index) => {
-            setPadZone('grid');
-            setSelected(index);
-          }}
+          onSelect={setSelected}
           onOpen={(gameId) => setView({ kind: 'detail', gameId })}
         />
       )}
@@ -1224,7 +1169,7 @@ export default function App(): JSX.Element {
       {!ready && <div className="boot-ready" aria-live="polite">Carregando biblioteca…</div>}
 
       <footer className="hint">
-        Controle: ↑ filtros · ← sidebar · A confirma · B volta · Y busca · Start config
+        Controle: D-pad move · A confirma · B volta · Y busca · Start config
       </footer>
         </>
       )}

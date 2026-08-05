@@ -91,7 +91,13 @@ export default function GameFormModal({ game, onClose, onSave }: Props): JSX.Ele
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        data-pad-root="1"
+      >
         <h2>{game ? 'Editar jogo' : 'Adicionar jogo'}</h2>
 
         <label className="field">
