@@ -2,15 +2,35 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUserId, sleep, mapPool } from '@/lib/auth-helpers';
 import { RAWGAPI } from '@/lib/rawg-api';
 import { SteamAPI } from '@/lib/steam-api';
-import { RatingAggregator } from '@/lib/aggregation';
+import { createRatingsFileLog } from '@/lib/ratings-log';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const DELAY_MS = 150;
-const CONCURRENCY = 2;
+const DELAY_MS = 100;
+const STEAM_CONCURRENCY = 3;
+const RAWG_CONCURRENCY = 2;
 const FRESH_MS = 7 * 24 * 60 * 60 * 1000;
+
+type TimingBucket = 'steamLookup' | 'steam' | 'rawg' | 'save';
+type Phase = 'steam' | 'rawg';
+
+function summarizeTimings(samples: number[]) {
+  if (samples.length === 0) return null;
+  const total = samples.reduce((a, b) => a + b, 0);
+  return {
+    count: samples.length,
+    totalMs: total,
+    avgMs: Math.round(total / samples.length),
+    maxMs: Math.max(...samples),
+  };
+}
+
+function formatMs(ms: number) {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
+}
 
 function ndjsonResponse(
   write: (send: (obj: unknown) => void) => Promise<void>
@@ -52,10 +72,27 @@ function resolveSteamAppId(
   }
   const fromData = gameData.appid ?? gameData.steam_appid;
   if (fromData !== undefined && fromData !== null && fromData !== '') {
-    const n = typeof fromData === 'number' ? fromData : parseInt(String(fromData), 10);
+    const n =
+      typeof fromData === 'number' ? fromData : parseInt(String(fromData), 10);
     if (!Number.isNaN(n) && n > 0) return n;
   }
   return null;
+}
+
+function ratingOf(
+  ratings: { source: string; rating: number | null; lastUpdated: Date }[],
+  source: string
+): { rating: number | null; lastUpdated: Date } | null {
+  const row = ratings.find((r) => r.source === source);
+  return row ? { rating: row.rating, lastUpdated: row.lastUpdated } : null;
+}
+
+function isFreshUseful(
+  row: { rating: number | null; lastUpdated: Date } | null,
+  staleCutoff: number
+) {
+  if (!row || row.rating === null || row.rating <= 0) return false;
+  return row.lastUpdated.getTime() >= staleCutoff;
 }
 
 export async function POST(request: NextRequest) {
@@ -79,191 +116,475 @@ export async function POST(request: NextRequest) {
   });
 
   const staleCutoff = Date.now() - FRESH_MS;
-  const eligible = games.filter((game) => {
+  const steamQueue: typeof games = [];
+  const rawgQueue: typeof games = [];
+  let skippedFresh = 0;
+
+  for (const game of games) {
     const gameData =
       typeof game.gameData === 'string'
         ? JSON.parse(game.gameData)
         : game.gameData;
     const gameName = String(gameData?.name || gameData?.title || '');
-    if (!gameName || /^[0-9a-f]{32}$/i.test(gameName)) return false;
+    if (!gameName || /^[0-9a-f]{32}$/i.test(gameName)) continue;
 
-    if (force) return true;
+    const steamRow = ratingOf(game.ratings, 'steam');
+    const rawgRow = ratingOf(game.ratings, 'rawg');
+    const metaRow = ratingOf(game.ratings, 'metacritic');
 
-    const useful = game.ratings.filter(
-      (r) => r.rating !== null && r.rating > 0
-    );
-    if (useful.length === 0) return true;
+    const steamFresh = !force && isFreshUseful(steamRow, staleCutoff);
+    const rawgFresh =
+      !force &&
+      (isFreshUseful(rawgRow, staleCutoff) ||
+        isFreshUseful(metaRow, staleCutoff));
 
-    const steamAppId = resolveSteamAppId(game.platform, game.externalId, gameData);
-    // Sem steam_appid resolvido → buscar de novo (preenche link SteamDB + % Steam)
-    if (!steamAppId && !gameData.steam_appid_resolved) {
-      return true;
+    if (steamFresh && rawgFresh) {
+      skippedFresh += 1;
+      continue;
     }
-    // Tem appid mas ainda não gravou a fonte steam → completar
-    if (steamAppId && !game.ratings.some((r) => r.source === 'steam')) {
-      return true;
-    }
+    if (!steamFresh) steamQueue.push(game);
+    if (!rawgFresh) rawgQueue.push(game);
+  }
 
-    // Já tem nota fresca (< 7 dias) → não busca de novo
-    const freshest = Math.max(...useful.map((r) => r.lastUpdated.getTime()));
-    return freshest < staleCutoff;
-  });
-
-  const rawg = new RAWGAPI(process.env.RAWG_API_KEY);
-  // API key optional for store reviews endpoint
   const steam = new SteamAPI(process.env.STEAM_API_KEY || 'unused');
+  const rawg = new RAWGAPI(process.env.RAWG_API_KEY);
+  const fileLog = await createRatingsFileLog();
 
   return ndjsonResponse(async (send) => {
+    const totalSteam = steamQueue.length;
+    const totalRawg = rawgQueue.length;
+    const totalWork = totalSteam + totalRawg;
+
+    fileLog.line(
+      `start · steamQueue=${totalSteam} rawgQueue=${totalRawg} skippedFresh=${skippedFresh}`
+    );
+
     send({
       type: 'meta',
-      totalEligible: eligible.length,
-      scanned: eligible.length,
-      remaining: 0,
-      concurrency: CONCURRENCY,
+      totalEligible: totalWork,
+      steamTotal: totalSteam,
+      rawgTotal: totalRawg,
+      skippedFresh,
+      phase: 'steam' as Phase,
+      logFile: fileLog.relativePath,
+      message:
+        totalWork > 0
+          ? `Fase Steam: ${totalSteam} · depois RAWG/Meta: ${totalRawg}` +
+            (skippedFresh > 0 ? ` · ${skippedFresh} frescos` : '')
+          : skippedFresh > 0
+            ? `Nada pendente — ${skippedFresh} já com notas recentes`
+            : 'Nenhuma nota pendente',
     });
 
-    if (eligible.length === 0) {
+    if (totalWork === 0) {
+      await fileLog.flush();
       send({
         type: 'done',
         updated: 0,
-        matched: 0,
-        scanned: 0,
-        remaining: 0,
         totalEligible: 0,
+        logFile: fileLog.relativePath,
       });
       return;
     }
 
     let updated = 0;
-    let matched = 0;
     let completed = 0;
+    const timingSamples: Record<TimingBucket, number[]> = {
+      steamLookup: [],
+      steam: [],
+      rawg: [],
+      save: [],
+    };
+    const timingLog: Array<{
+      title: string;
+      bucket: TimingBucket;
+      ms: number;
+      phase: Phase;
+    }> = [];
+    const batchStartedAt = Date.now();
 
-    await mapPool(eligible, CONCURRENCY, async (game) => {
-      try {
+    const timed = async <T>(
+      title: string,
+      phase: Phase,
+      bucket: TimingBucket,
+      work: () => Promise<T>
+    ): Promise<{ value: T; ms: number }> => {
+      const started = Date.now();
+      const value = await work();
+      const ms = Date.now() - started;
+      timingSamples[bucket].push(ms);
+      timingLog.push({ title, bucket, ms, phase });
+      fileLog.line(`${phase} · ${title} · ${bucket} · ${ms}ms`);
+      return { value, ms };
+    };
+
+    // ─── Fase 1: Steam reviews (rápida, prioritária) ─────────────────
+    if (totalSteam > 0) {
+      send({
+        type: 'phase',
+        phase: 'steam',
+        message: `Fase Steam — ${totalSteam} jogos`,
+        current: 0,
+        total: totalSteam,
+      });
+
+      const processSteam = async (
+        game: (typeof games)[number],
+        allowLookup: boolean
+      ) => {
+        let gameName = 'Jogo';
+        try {
+          const gameData =
+            typeof game.gameData === 'string'
+              ? JSON.parse(game.gameData)
+              : game.gameData;
+          gameName = String(gameData.name || gameData.title || '');
+          if (!gameName) {
+            completed += 1;
+            return;
+          }
+
+          send({
+            type: 'stage',
+            phase: 'steam',
+            gameId: game.id,
+            title: gameName,
+            stage: 'steam',
+            message: `${gameName} — Steam %`,
+            current: completed,
+            total: totalSteam,
+          });
+          await sleep(10);
+
+          let steamAppId = resolveSteamAppId(
+            game.platform,
+            game.externalId,
+            gameData
+          );
+          let steamMatchedName: string | null = null;
+
+          if (!steamAppId && allowLookup) {
+            send({
+              type: 'stage',
+              phase: 'steam',
+              gameId: game.id,
+              title: gameName,
+              stage: 'steam-lookup',
+              message: `${gameName} — Steam AppID`,
+              current: completed,
+              total: totalSteam,
+            });
+            const { value: found, ms } = await timed(
+              gameName,
+              'steam',
+              'steamLookup',
+              () => steam.findAppIdByTitle(gameName)
+            );
+            steamAppId = found.appid;
+            steamMatchedName = found.matchedName;
+            fileLog.line(
+              `steam · ${gameName} · lookup ${steamAppId ? steamAppId : 'MISS'} · ${ms}ms`
+            );
+          }
+
+          let steamPercent: number | null = null;
+          if (steamAppId) {
+            const { value: review, ms } = await timed(
+              gameName,
+              'steam',
+              'steam',
+              () => steam.getReviewScore(steamAppId!)
+            );
+            steamPercent = review.percent;
+            fileLog.line(
+              `steam · ${gameName} · review ${steamPercent ?? 'null'}% · ${ms}ms`
+            );
+          }
+
+          await timed(gameName, 'steam', 'save', async () => {
+            const nextGameData = {
+              ...gameData,
+              steam_appid: steamAppId,
+              steam_appid_resolved: true,
+              ...(steamMatchedName
+                ? { steam_matched_name: steamMatchedName }
+                : {}),
+            };
+            await prisma.gameLibrary.update({
+              where: { id: game.id },
+              data: { gameData: JSON.stringify(nextGameData) },
+            });
+
+            const steamDbLink = steamAppId
+              ? `https://steamdb.info/app/${steamAppId}/`
+              : null;
+
+            await prisma.gameRating.upsert({
+              where: {
+                gameLibraryId_source: {
+                  gameLibraryId: game.id,
+                  source: 'steam',
+                },
+              },
+              update: {
+                rating: steamPercent,
+                lastUpdated: new Date(),
+                ...(steamDbLink ? { url: steamDbLink } : {}),
+              },
+              create: {
+                gameLibraryId: game.id,
+                source: 'steam',
+                rating: steamPercent,
+                ...(steamDbLink ? { url: steamDbLink } : {}),
+              },
+            });
+          });
+
+          completed += 1;
+          if (steamPercent && steamPercent > 0) updated += 1;
+
+          send({
+            type: 'item',
+            phase: 'steam',
+            gameId: game.id,
+            title: gameName,
+            steam: steamPercent,
+            steamAppId,
+            rawg: null,
+            metacritic: null,
+            message:
+              steamPercent && steamPercent > 0
+                ? `${gameName} · Steam ${steamPercent}%`
+                : `${gameName} — sem % Steam`,
+            current: completed,
+            total: totalSteam,
+          });
+
+          await sleep(DELAY_MS);
+        } catch (error) {
+          completed += 1;
+          fileLog.line(`steam · ${gameName} · ERROR · ${String(error)}`);
+          console.error('Steam phase error:', error);
+        }
+      };
+
+      // Primeiro quem já tem AppID; lookup (mais lento) só depois
+      const knownAppId: typeof games = [];
+      const needLookup: typeof games = [];
+      for (const game of steamQueue) {
         const gameData =
           typeof game.gameData === 'string'
             ? JSON.parse(game.gameData)
             : game.gameData;
-        const gameName = String(gameData.name || gameData.title || '');
-        if (!gameName) {
-          completed += 1;
-          return;
+        if (resolveSteamAppId(game.platform, game.externalId, gameData)) {
+          knownAppId.push(game);
+        } else {
+          needLookup.push(game);
         }
-
-        send({
-          type: 'looking',
-          title: gameName,
-          current: completed,
-          total: eligible.length,
-        });
-        await sleep(10);
-
-        const resolved = await rawg.resolveRatingsForTitle(gameName);
-        if (resolved.matchedName) matched += 1;
-
-        let steamPercent: number | null = null;
-        let steamAppId = resolveSteamAppId(
-          game.platform,
-          game.externalId,
-          gameData
-        );
-        let steamMatchedName: string | null = null;
-
-        if (!steamAppId) {
-          const found = await steam.findAppIdByTitle(gameName);
-          steamAppId = found.appid;
-          steamMatchedName = found.matchedName;
-        }
-
-        if (steamAppId) {
-          const review = await steam.getReviewScore(steamAppId);
-          steamPercent = review.percent;
-        }
-
-        // Persiste appid no gameData para o link SteamDB ficar preciso
-        const nextGameData = {
-          ...gameData,
-          steam_appid: steamAppId,
-          steam_appid_resolved: true,
-          ...(steamMatchedName ? { steam_matched_name: steamMatchedName } : {}),
-        };
-        await prisma.gameLibrary.update({
-          where: { id: game.id },
-          data: { gameData: JSON.stringify(nextGameData) },
-        });
-
-        const steamDbLink = steamAppId
-          ? `https://steamdb.info/app/${steamAppId}/`
-          : null;
-
-        const ratings = RatingAggregator.aggregate(
-          resolved.metacritic,
-          resolved.rawg,
-          steamAppId ? steamPercent : null
-        ).filter((r) => {
-          if (r.source === 'steam' && !steamAppId) return false;
-          return true;
-        });
-
-        for (const rating of ratings) {
-          await prisma.gameRating.upsert({
-            where: {
-              gameLibraryId_source: {
-                gameLibraryId: game.id,
-                source: rating.source,
-              },
-            },
-            update: {
-              rating: rating.rating,
-              lastUpdated: new Date(),
-              ...(rating.source === 'steam' && steamDbLink
-                ? { url: steamDbLink }
-                : {}),
-            },
-            create: {
-              gameLibraryId: game.id,
-              source: rating.source,
-              rating: rating.rating,
-              ...(rating.source === 'steam' && steamDbLink
-                ? { url: steamDbLink }
-                : {}),
-            },
-          });
-        }
-
-        updated += 1;
-        completed += 1;
-        send({
-          type: 'item',
-          title: gameName,
-          matchedName: resolved.matchedName,
-          rawg: resolved.rawg,
-          metacritic: resolved.metacritic,
-          steam: steamPercent,
-          steamAppId,
-          current: completed,
-          total: eligible.length,
-        });
-
-        await sleep(DELAY_MS);
-      } catch (error) {
-        completed += 1;
-        console.error('Ratings batch item error:', error);
       }
-    });
+
+      await mapPool(knownAppId, STEAM_CONCURRENCY, async (game) => {
+        await processSteam(game, false);
+      });
+
+      if (needLookup.length > 0) {
+        send({
+          type: 'stage',
+          phase: 'steam',
+          stage: 'steam-lookup-pass',
+          message: `Steam AppID lookup: ${needLookup.length} jogos`,
+          current: completed,
+          total: totalSteam,
+        });
+      }
+
+      await mapPool(needLookup, STEAM_CONCURRENCY, async (game) => {
+        await processSteam(game, true);
+      });
+    }
+
+    // ─── Fase 2: RAWG / Metacritic (mais lenta, por último, paralela) ─
+    completed = 0;
+    if (totalRawg > 0) {
+      send({
+        type: 'phase',
+        phase: 'rawg',
+        message: `Fase RAWG/Meta — ${totalRawg} jogos (em paralelo)`,
+        current: 0,
+        total: totalRawg,
+      });
+
+      await mapPool(rawgQueue, RAWG_CONCURRENCY, async (game) => {
+        let gameName = 'Jogo';
+        try {
+          const gameData =
+            typeof game.gameData === 'string'
+              ? JSON.parse(game.gameData)
+              : game.gameData;
+          gameName = String(gameData.name || gameData.title || '');
+          if (!gameName) {
+            completed += 1;
+            return;
+          }
+
+          send({
+            type: 'stage',
+            phase: 'rawg',
+            gameId: game.id,
+            title: gameName,
+            stage: 'rawg',
+            message: `${gameName} — RAWG/Meta`,
+            current: completed,
+            total: totalRawg,
+          });
+          await sleep(10);
+
+          // Tentativa precisa; se miss, ampla
+          let resolved = (
+            await timed(gameName, 'rawg', 'rawg', () =>
+              rawg.resolveRatingsForTitle(gameName, { precise: true })
+            )
+          ).value;
+
+          if (!resolved.matchedName) {
+            resolved = (
+              await timed(gameName, 'rawg', 'rawg', () =>
+                rawg.resolveRatingsForTitle(gameName, { precise: false })
+              )
+            ).value;
+          }
+
+          await timed(gameName, 'rawg', 'save', async () => {
+            for (const source of ['metacritic', 'rawg'] as const) {
+              const rating =
+                source === 'metacritic' ? resolved.metacritic : resolved.rawg;
+              await prisma.gameRating.upsert({
+                where: {
+                  gameLibraryId_source: {
+                    gameLibraryId: game.id,
+                    source,
+                  },
+                },
+                update: {
+                  rating,
+                  lastUpdated: new Date(),
+                },
+                create: {
+                  gameLibraryId: game.id,
+                  source,
+                  rating,
+                },
+              });
+            }
+          });
+
+          completed += 1;
+          const hit =
+            (resolved.rawg !== null && resolved.rawg > 0) ||
+            (resolved.metacritic !== null && resolved.metacritic > 0);
+          if (hit) updated += 1;
+
+          const parts: string[] = [];
+          if (resolved.metacritic && resolved.metacritic > 0) {
+            parts.push(`Meta ${resolved.metacritic}`);
+          }
+          if (resolved.rawg && resolved.rawg > 0) {
+            const rawgDisp =
+              resolved.rawg <= 5
+                ? Math.round(resolved.rawg * 20 * 10) / 10
+                : resolved.rawg;
+            parts.push(`RAWG ${rawgDisp}`);
+          }
+
+          send({
+            type: 'item',
+            phase: 'rawg',
+            gameId: game.id,
+            title: gameName,
+            matchedName: resolved.matchedName,
+            rawg: resolved.rawg,
+            metacritic: resolved.metacritic,
+            steam: null,
+            message:
+              parts.length > 0
+                ? `${gameName} · ${parts.join(' · ')}`
+                : `${gameName} — sem RAWG/Meta`,
+            current: completed,
+            total: totalRawg,
+          });
+
+          await sleep(DELAY_MS);
+        } catch (error) {
+          completed += 1;
+          fileLog.line(`rawg · ${gameName} · ERROR · ${String(error)}`);
+          console.error('RAWG phase error:', error);
+        }
+      });
+    }
 
     await prisma.user.update({
       where: { id: auth.userId },
       data: { lastRatingsSyncAt: new Date() },
     });
 
+    const timingSummary = {
+      steamLookup: summarizeTimings(timingSamples.steamLookup),
+      steam: summarizeTimings(timingSamples.steam),
+      rawg: summarizeTimings(timingSamples.rawg),
+      save: summarizeTimings(timingSamples.save),
+    };
+    const bucketLabels: Record<TimingBucket, string> = {
+      steamLookup: 'Steam AppID',
+      steam: 'Steam %',
+      rawg: 'RAWG/Meta',
+      save: 'Gravar DB',
+    };
+    const ranked = (
+      Object.entries(timingSummary) as [
+        TimingBucket,
+        ReturnType<typeof summarizeTimings>,
+      ][]
+    )
+      .filter(([, s]) => s)
+      .sort((a, b) => (b[1]!.avgMs || 0) - (a[1]!.avgMs || 0));
+    const bottleneck = ranked[0]
+      ? {
+          bucket: ranked[0][0],
+          label: bucketLabels[ranked[0][0]],
+          avgMs: ranked[0][1]!.avgMs,
+          maxMs: ranked[0][1]!.maxMs,
+        }
+      : null;
+
+    const elapsedMs = Date.now() - batchStartedAt;
+    fileLog.line(
+      `summary · updated=${updated} elapsed=${formatMs(elapsedMs)} bottleneck=${
+        bottleneck
+          ? `${bottleneck.label} avg=${formatMs(bottleneck.avgMs)} max=${formatMs(bottleneck.maxMs)}`
+          : 'n/a'
+      }`
+    );
+    for (const row of timingLog) {
+      fileLog.line(
+        `row · ${row.phase} · ${row.title} · ${row.bucket} · ${row.ms}ms`
+      );
+    }
+    const logFile = await fileLog.flush();
+
     send({
       type: 'done',
       updated,
-      matched,
-      scanned: eligible.length,
-      remaining: 0,
-      totalEligible: eligible.length,
+      totalEligible: totalWork,
+      steamTotal: totalSteam,
+      rawgTotal: totalRawg,
+      elapsedMs,
+      timings: timingSummary,
+      bottleneck,
+      log: timingLog,
+      logFile,
+      message: bottleneck
+        ? `Notas ok — gargalo ${bottleneck.label} (média ${formatMs(bottleneck.avgMs)}) · ${formatMs(elapsedMs)} · ${logFile}`
+        : `Notas ok — ${updated} atualizados · ${formatMs(elapsedMs)} · ${logFile}`,
     });
   });
 }

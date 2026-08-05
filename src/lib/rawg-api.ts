@@ -81,15 +81,21 @@ export class RAWGAPI {
     this.apiKey = apiKey;
   }
 
-  async searchGames(query: string, page = 1): Promise<RAWGSearchResponse> {
+  async searchGames(
+    query: string,
+    page = 1,
+    opts?: { precise?: boolean }
+  ): Promise<RAWGSearchResponse> {
+    const precise = opts?.precise !== false;
     const response = await axios.get(`${RAWG_API_BASE}/games`, {
       params: {
         key: this.apiKey,
         search: query,
         page,
         page_size: 20,
-        search_precise: true,
+        search_precise: precise,
       },
+      timeout: 8000,
     });
     return response.data;
   }
@@ -99,6 +105,7 @@ export class RAWGAPI {
       params: {
         key: this.apiKey,
       },
+      timeout: 8000,
     });
     return response.data;
   }
@@ -108,46 +115,57 @@ export class RAWGAPI {
       params: {
         key: this.apiKey,
       },
+      timeout: 8000,
     });
     return response.data;
   }
 
   /**
    * Search + best title match + details (for community rating + metacritic).
+   * precise=false = busca mais ampla (2ª passagem / miss).
    */
-  async resolveRatingsForTitle(title: string): Promise<{
+  async resolveRatingsForTitle(
+    title: string,
+    opts?: { precise?: boolean }
+  ): Promise<{
     rawg: number | null;
     metacritic: number | null;
     matchedName: string | null;
   }> {
-    const search = await this.searchGames(title);
-    const match = pickBestRawgMatch(title, search.results || []);
-    if (!match) {
+    const precise = opts?.precise !== false;
+    try {
+      const search = await this.searchGames(title, 1, { precise });
+      const match = pickBestRawgMatch(title, search.results || []);
+      if (!match) {
+        return { rawg: null, metacritic: null, matchedName: null };
+      }
+
+      let details: RAWGGame = match;
+      try {
+        details = await this.getGameDetails(match.id);
+      } catch {
+        // fall back to search hit
+      }
+
+      const rawg =
+        typeof details.rating === 'number' && details.rating > 0
+          ? details.rating
+          : null;
+      const metacritic =
+        typeof details.metacritic === 'number' && details.metacritic > 0
+          ? details.metacritic
+          : typeof match.metacritic === 'number' && match.metacritic > 0
+            ? match.metacritic
+            : null;
+
+      return {
+        rawg,
+        metacritic,
+        matchedName: details.name || match.name,
+      };
+    } catch (error) {
+      console.error('RAWG resolveRatingsForTitle error:', error);
       return { rawg: null, metacritic: null, matchedName: null };
     }
-
-    let details: RAWGGame = match;
-    try {
-      details = await this.getGameDetails(match.id);
-    } catch {
-      // fall back to search hit
-    }
-
-    const rawg =
-      typeof details.rating === 'number' && details.rating > 0
-        ? details.rating
-        : null;
-    const metacritic =
-      typeof details.metacritic === 'number' && details.metacritic > 0
-        ? details.metacritic
-        : typeof match.metacritic === 'number' && match.metacritic > 0
-          ? match.metacritic
-          : null;
-
-    return {
-      rawg,
-      metacritic,
-      matchedName: details.name || match.name,
-    };
   }
 }

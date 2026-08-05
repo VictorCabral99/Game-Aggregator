@@ -64,24 +64,28 @@ const STORES = [
   {
     id: 'steam',
     name: 'Steam',
+    shortName: 'Steam',
     loginPath: '/api/platforms/steam/login',
     color: 'bg-[#1b2838] hover:bg-[#2a475e] text-white',
   },
   {
     id: 'epic',
-    name: 'Epic Games',
+    name: 'Epic',
+    shortName: 'Epic',
     loginPath: '/api/platforms/epic/login',
     color: 'bg-[#2f2f2f] hover:bg-[#3f3f3f] text-white',
   },
   {
     id: 'gog',
     name: 'GOG',
+    shortName: 'GOG',
     loginPath: '/api/platforms/gog/login',
     color: 'bg-[#86328a] hover:bg-[#9b3fa0] text-white',
   },
   {
     id: 'amazon',
-    name: 'Amazon Games',
+    name: 'Amazon',
+    shortName: 'Amazon',
     loginPath: '/api/platforms/amazon/login',
     color: 'bg-[#ff9900] hover:bg-[#ffad33] text-black',
   },
@@ -150,7 +154,75 @@ function itadDeal(item: WishlistGame) {
   return item.deals?.find((d) => d.source === 'itad') || item.deals?.[0] || null;
 }
 
-const FEED_LIMIT = 4;
+const FEED_LIMIT = 2;
+
+/** Fração do jogo atual concluída por stage — barra anda a cada mensagem do stream */
+const RATING_STAGE_FRAC: Record<string, number> = {
+  start: 0.08,
+  rawg: 0.22,
+  'rawg-done': 0.48,
+  'steam-lookup': 0.58,
+  'steam-lookup-done': 0.68,
+  steam: 0.74,
+  'steam-done': 0.85,
+  'steam-miss': 0.78,
+  save: 0.9,
+  'save-done': 0.96,
+  error: 1,
+};
+
+const RATING_STAGE_LABEL: Record<string, string> = {
+  start: 'iniciando…',
+  rawg: 'RAWG/Meta…',
+  'rawg-done': 'RAWG/Meta ok',
+  'steam-lookup': 'Steam AppID…',
+  'steam-lookup-done': 'Steam AppID ok',
+  steam: 'Steam %…',
+  'steam-done': 'Steam % ok',
+  'steam-miss': 'sem Steam',
+  save: 'gravando…',
+  'save-done': 'gravado',
+  error: 'erro',
+};
+
+const TIMING_BUCKET_LABEL: Record<string, string> = {
+  rawg: 'RAWG/Meta',
+  steamLookup: 'Steam AppID',
+  steam: 'Steam %',
+  save: 'Gravar DB',
+};
+
+const SLOW_MS = 1200;
+
+function formatDurationMs(ms: number) {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${ms}ms`;
+}
+
+function streamPercent(
+  gamesDone: number,
+  total: number,
+  inFlightFrac: Map<string, number>
+): number {
+  if (total <= 0) return 100;
+  let sum = gamesDone;
+  for (const frac of inFlightFrac.values()) sum += frac;
+  return Math.min(99, Math.max(1, Math.round((sum / total) * 100)));
+}
+
+type TimingStat = {
+  count: number;
+  totalMs: number;
+  avgMs: number;
+  maxMs: number;
+} | null;
+
+type TimingSummary = {
+  rawg?: TimingStat;
+  steamLookup?: TimingStat;
+  steam?: TimingStat;
+  save?: TimingStat;
+};
 
 function formatRawgDisplay(rawg: number | null): string | null {
   if (rawg === null || rawg <= 0) return null;
@@ -215,6 +287,83 @@ function appendFeed(prev: string[] | undefined, lines: string[]) {
   return [...(prev || []), ...lines].slice(-FEED_LIMIT);
 }
 
+function upsertRating(
+  ratings: GameRating[],
+  source: string,
+  rating: number | null,
+  tempId: string
+): GameRating[] {
+  const idx = ratings.findIndex((r) => r.source === source);
+  if (idx >= 0) {
+    const next = ratings.slice();
+    next[idx] = { ...next[idx], rating };
+    return next;
+  }
+  return [...ratings, { id: tempId, source, rating }];
+}
+
+function applyLiveRatings(
+  game: LibraryGame,
+  patch: {
+    rawg: number | null;
+    metacritic: number | null;
+    steam: number | null;
+    steamAppId?: number | null;
+  }
+): LibraryGame {
+  let ratings = game.ratings ? [...game.ratings] : [];
+  ratings = upsertRating(ratings, 'metacritic', patch.metacritic, `live-${game.id}-metacritic`);
+  ratings = upsertRating(ratings, 'rawg', patch.rawg, `live-${game.id}-rawg`);
+  ratings = upsertRating(ratings, 'steam', patch.steam, `live-${game.id}-steam`);
+
+  let gameData = game.gameData;
+  if (patch.steamAppId) {
+    const data = parseGameData(game.gameData);
+    gameData = {
+      ...data,
+      steam_appid: patch.steamAppId,
+      steam_appid_resolved: true,
+    };
+  }
+
+  return { ...game, ratings, gameData };
+}
+
+function applyLiveDeal(
+  item: WishlistGame,
+  patch: {
+    currentPrice: number | null;
+    regularPrice: number | null;
+    currency: string | null;
+    cut: number | null;
+    shopName: string | null;
+    historicalLow: number | null;
+    historicalLowShop: string | null;
+    url: string | null;
+    found: boolean;
+  }
+): WishlistGame {
+  if (!patch.found) return item;
+
+  const deals = item.deals ? [...item.deals] : [];
+  const idx = deals.findIndex((d) => d.source === 'itad');
+  const nextDeal: GameDeal = {
+    id: idx >= 0 ? deals[idx].id : `live-${item.id}-itad`,
+    source: 'itad',
+    currentPrice: patch.currentPrice,
+    regularPrice: patch.regularPrice,
+    currency: patch.currency,
+    cut: patch.cut,
+    shopName: patch.shopName,
+    historicalLow: patch.historicalLow,
+    historicalLowShop: patch.historicalLowShop,
+    url: patch.url,
+  };
+  if (idx >= 0) deals[idx] = { ...deals[idx], ...nextDeal, id: deals[idx].id };
+  else deals.push(nextDeal);
+  return { ...item, deals };
+}
+
 async function readNdjsonStream(
   response: Response,
   onEvent: (event: Record<string, unknown>) => void | Promise<void>
@@ -238,6 +387,7 @@ async function readNdjsonStream(
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
+      // Não await trabalho pesado aqui — senão o stream "trava" na UI
       await onEvent(JSON.parse(trimmed) as Record<string, unknown>);
     }
   }
@@ -335,6 +485,7 @@ export default function Dashboard() {
   const [syncing, setSyncing] = useState(false);
   const [syncingWishlist, setSyncingWishlist] = useState(false);
   const [fetchingRatings, setFetchingRatings] = useState(false);
+  const [quietEnriching, setQuietEnriching] = useState(false);
   const [fetchingDeals, setFetchingDeals] = useState(false);
   const [progress, setProgress] = useState<{
     label: string;
@@ -343,13 +494,18 @@ export default function Dashboard() {
     percent: number;
     tone?: 'emerald' | 'indigo' | 'amber';
     feed?: string[];
+    timings?: TimingSummary | null;
+    bottleneck?: { label: string; avgMs: number; maxMs: number } | null;
   } | null>(null);
+  const [lookingIds, setLookingIds] = useState<string[]>([]);
+  const [lookingStages, setLookingStages] = useState<Record<string, string>>({});
+  const [freshIds, setFreshIds] = useState<string[]>([]);
   const [lastDailySyncAt, setLastDailySyncAt] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [visibleStores, setVisibleStores] = useState<Record<string, boolean>>(DEFAULT_VISIBLE_STORES);
-  const [librarySort, setLibrarySort] = useState<LibrarySort>('name');
+  const [librarySort, setLibrarySort] = useState<LibrarySort>('steam');
   const [wishlistSort, setWishlistSort] = useState<WishlistSort>('name');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   const toggleStore = (platform: string) => {
     setVisibleStores((prev) => ({ ...prev, [platform]: !prev[platform] }));
@@ -375,18 +531,124 @@ export default function Dashboard() {
     return syncData;
   }, []);
 
+  const markFresh = useCallback((id: string) => {
+    setFreshIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    window.setTimeout(() => {
+      setFreshIds((prev) => prev.filter((x) => x !== id));
+    }, 1300);
+  }, []);
+
+  const setLooking = useCallback((id: string, active: boolean, stage?: string) => {
+    setLookingIds((prev) => {
+      if (active) return prev.includes(id) ? prev : [...prev, id];
+      return prev.filter((x) => x !== id);
+    });
+    setLookingStages((prev) => {
+      if (!active) {
+        if (!(id in prev)) return prev;
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      }
+      if (!stage) return prev;
+      if (prev[id] === stage) return prev;
+      return { ...prev, [id]: stage };
+    });
+  }, []);
+
+  const clearLooking = useCallback(() => {
+    setLookingIds([]);
+    setLookingStages({});
+  }, []);
+
   const runRatingsFetch = useCallback(async () => {
     if (games.length === 0) {
       setMessage('Nenhum jogo na biblioteca para buscar notas');
       return;
     }
 
+    setTab('library');
+    setLibrarySort('steam');
+    setSortDir('desc');
     setFetchingRatings(true);
-    setMessage('Buscando notas no RAWG e Metacritic...');
+    setQuietEnriching(false);
+    clearLooking();
+    setFreshIds([]);
+    setMessage(null);
     let feed: string[] = [];
     let totalEligible = 0;
+    let steamTotal = 0;
+    let rawgTotal = 0;
+    let steamDone = 0;
+    let rawgDone = 0;
     let updated = 0;
-    let itemsSinceReload = 0;
+    let quietRawg = false;
+    const inFlightFrac = new Map<string, number>();
+    let timingSummary: TimingSummary | null = null;
+    let bottleneck: { label: string; avgMs: number; maxMs: number } | null =
+      null;
+    const timingLog: Array<{ title: string; bucket: string; ms: number }> = [];
+
+    // Progresso visual só da Steam — RAWG/Meta roda quieto depois
+    const overallDone = () => steamDone;
+    const overallTotal = () => Math.max(1, steamTotal || totalEligible);
+
+    const pushProgress = (
+      label: string,
+      opts?: {
+        done?: boolean;
+        timings?: TimingSummary | null;
+        bottleneck?: { label: string; avgMs: number; maxMs: number } | null;
+      }
+    ) => {
+      if (opts?.timings !== undefined) timingSummary = opts.timings;
+      if (opts?.bottleneck !== undefined) bottleneck = opts.bottleneck;
+      const percent = opts?.done
+        ? 100
+        : Math.min(
+            99,
+            Math.max(
+              2,
+              Math.round((overallDone() / overallTotal()) * 100)
+            )
+          );
+      setProgress({
+        label,
+        current: overallDone(),
+        total: steamTotal || totalEligible,
+        percent,
+        tone: 'indigo',
+        feed,
+        timings: timingSummary,
+        bottleneck,
+      });
+    };
+
+    const enterQuietRawg = (label?: string) => {
+      if (quietRawg) return;
+      quietRawg = true;
+      inFlightFrac.clear();
+      clearLooking();
+      setFetchingRatings(false);
+      setQuietEnriching(true);
+      const doneLabel =
+        label ||
+        (steamDone > 0
+          ? `Steam ok — ${steamDone} jogos`
+          : 'Steam ok — enriquecendo em segundo plano');
+      feed = appendFeed(feed, [doneLabel]);
+      pushProgress(doneLabel, { done: true });
+      setMessage(doneLabel);
+      setTimeout(() => setProgress(null), 1800);
+    };
+
+    const recordTiming = (event: Record<string, unknown>) => {
+      const ms = typeof event.ms === 'number' ? event.ms : null;
+      const bucket = typeof event.bucket === 'string' ? event.bucket : null;
+      const title = typeof event.title === 'string' ? event.title : null;
+      if (ms === null || !bucket || !title) return;
+      timingLog.push({ title, bucket, ms });
+    };
 
     setProgress({
       label: 'Preparando busca de notas...',
@@ -395,6 +657,8 @@ export default function Dashboard() {
       percent: 2,
       tone: 'indigo',
       feed: [],
+      timings: null,
+      bottleneck: null,
     });
 
     try {
@@ -410,8 +674,10 @@ export default function Dashboard() {
         return;
       }
 
-      await readNdjsonStream(response, async (event) => {
+      await readNdjsonStream(response, (event) => {
         const type = String(event.type || '');
+        const streamMsg =
+          typeof event.message === 'string' ? event.message : null;
 
         if (type === 'error') {
           setMessage(String(event.error || 'Falha ao buscar notas'));
@@ -420,96 +686,231 @@ export default function Dashboard() {
 
         if (type === 'meta') {
           totalEligible = Number(event.totalEligible) || 0;
-          setProgress({
-            label:
-              totalEligible > 0
-                ? `Notas: 0 de ${totalEligible} jogos`
-                : 'Nenhuma nota pendente',
-            current: 0,
-            total: totalEligible,
-            percent: totalEligible > 0 ? 3 : 100,
-            tone: 'indigo',
-            feed,
-          });
+          steamTotal = Number(event.steamTotal) || 0;
+          rawgTotal = Number(event.rawgTotal) || 0;
+          const skippedFresh = Number(event.skippedFresh) || 0;
+          const metaMsg =
+            streamMsg ||
+            (steamTotal > 0
+              ? `Buscando Steam em ${steamTotal} jogos`
+              : totalEligible > 0
+                ? 'Steam ok — enriquecendo em segundo plano'
+                : skippedFresh > 0
+                  ? `Nenhuma pendente — ${skippedFresh} com nota recente`
+                  : 'Nenhuma nota pendente');
+          feed = appendFeed(feed, [metaMsg]);
+          pushProgress(metaMsg, { done: totalEligible === 0 });
+          if (totalEligible === 0) {
+            setMessage(
+              skippedFresh > 0
+                ? `Nenhuma nota pendente — ${skippedFresh} jogos já têm nota recente`
+                : 'Nenhuma nota pendente (já atualizadas nesta semana)'
+            );
+          } else if (steamTotal === 0 && rawgTotal > 0) {
+            enterQuietRawg(metaMsg);
+          }
           return;
         }
 
-        if (type === 'looking') {
-          const title = String(event.title || 'Jogo');
-          const current = Number(event.current) || 0;
-          const total = Number(event.total) || totalEligible;
-          const percent =
-            total > 0 ? Math.min(99, Math.round(((current - 1) / total) * 100)) : 5;
+        if (type === 'phase') {
+          const phase = String(event.phase || '');
+          if (phase === 'rawg') {
+            enterQuietRawg();
+            return;
+          }
+          const label = streamMsg || 'Buscando reviews Steam…';
+          feed = appendFeed(feed, [label]);
+          pushProgress(label);
+          return;
+        }
 
-          feed = appendFeed(feed, [`Consultando ${title}…`]);
-          setProgress({
-            label: `Consultando ${title}…`,
-            current: Math.max(0, current - 1),
-            total,
-            percent: Math.max(percent, 3),
-            tone: 'indigo',
-            feed,
-          });
-          setMessage(`Consultando ${title}…`);
+        if (type === 'looking' || type === 'stage') {
+          recordTiming(event);
+          if (quietRawg) return;
+
+          const title = String(event.title || 'Jogo');
+          const gameId = typeof event.gameId === 'string' ? event.gameId : null;
+          const stage = String(event.stage || 'start');
+          const detail = typeof event.detail === 'string' ? event.detail : null;
+          const stageLabel = RATING_STAGE_LABEL[stage] || detail || stage;
+          const label = streamMsg || `${title} — ${stageLabel}`;
+
+          if (gameId) {
+            if (stage === 'error' || stage === 'deferred') {
+              setLooking(gameId, false);
+            } else {
+              setLooking(gameId, true, stageLabel);
+            }
+          }
+
+          feed = appendFeed(feed, [label]);
+          pushProgress(label);
           return;
         }
 
         if (type === 'item') {
+          const gameId = typeof event.gameId === 'string' ? event.gameId : null;
+          const phase = String(event.phase || '');
           const current = Number(event.current) || 0;
-          const total = Number(event.total) || totalEligible;
-          const percent =
-            total > 0 ? Math.min(99, Math.round((current / total) * 100)) : 50;
 
-          // Troca o "Consultando…" pelo resultado
-          if (feed.length > 0 && feed[feed.length - 1].startsWith('Consultando ')) {
-            feed = feed.slice(0, -1);
+          const rawg = (event.rawg as number | null) ?? null;
+          const metacritic = (event.metacritic as number | null) ?? null;
+          const steam = (event.steam as number | null) ?? null;
+          const steamAppId = (event.steamAppId as number | null) ?? null;
+
+          if (phase === 'steam') steamDone = current;
+          else if (phase === 'rawg') rawgDone = current;
+          else steamDone = current;
+
+          if (gameId) {
+            if (!quietRawg) {
+              setLooking(gameId, false);
+              inFlightFrac.delete(gameId);
+            }
+            setGames((prev) =>
+              prev.map((g) => {
+                if (g.id !== gameId) return g;
+                const existingRawg =
+                  g.ratings?.find((r) => r.source === 'rawg')?.rating ?? null;
+                const existingMeta =
+                  g.ratings?.find((r) => r.source === 'metacritic')?.rating ??
+                  null;
+                const existingSteam =
+                  g.ratings?.find((r) => r.source === 'steam')?.rating ?? null;
+
+                if (phase === 'steam') {
+                  return applyLiveRatings(g, {
+                    rawg: existingRawg,
+                    metacritic: existingMeta,
+                    steam,
+                    steamAppId,
+                  });
+                }
+                if (phase === 'rawg') {
+                  return applyLiveRatings(g, {
+                    rawg,
+                    metacritic,
+                    steam: existingSteam,
+                  });
+                }
+                return applyLiveRatings(g, {
+                  rawg,
+                  metacritic,
+                  steam,
+                  steamAppId,
+                });
+              })
+            );
+            if (!quietRawg) markFresh(gameId);
           }
-          feed = appendFeed(
-            feed,
+
+          updated += 1;
+
+          if (quietRawg || phase === 'rawg') return;
+
+          const resultLine =
+            streamMsg ||
             ratingPreviewLines([
               {
                 title: String(event.title || 'Jogo'),
                 matchedName: (event.matchedName as string | null) ?? null,
-                rawg: (event.rawg as number | null) ?? null,
-                metacritic: (event.metacritic as number | null) ?? null,
-                steam: (event.steam as number | null) ?? null,
+                rawg,
+                metacritic,
+                steam,
               },
-            ])
-          );
+            ])[0];
 
-          updated += 1;
-          itemsSinceReload += 1;
-          setProgress({
-            label: `Notas: ${current} de ${total || '?'} jogos`,
-            current,
-            total,
-            percent: Math.max(percent, 5),
-            tone: 'indigo',
-            feed,
-          });
-
-          if (itemsSinceReload >= 5) {
-            itemsSinceReload = 0;
-            await loadData();
-          }
+          feed = appendFeed(feed, [resultLine]);
+          pushProgress(`Steam: ${steamDone}/${steamTotal}`);
           return;
         }
 
         if (type === 'done') {
           updated = Number(event.updated) || updated;
           totalEligible = Number(event.totalEligible) || totalEligible;
-          setProgress({
-            label: `Notas concluídas (${updated} atualizados)`,
-            current: totalEligible || updated,
-            total: totalEligible || updated,
-            percent: 100,
-            tone: 'indigo',
-            feed,
+          steamDone = Number(event.steamTotal) || steamDone;
+          rawgDone = Number(event.rawgTotal) || rawgDone;
+          inFlightFrac.clear();
+          clearLooking();
+
+          const timings = (event.timings as TimingSummary | undefined) || null;
+          const bn = event.bottleneck as
+            | {
+                label?: string;
+                avgMs?: number;
+                maxMs?: number;
+              }
+            | null
+            | undefined;
+          const bnView =
+            bn?.label && typeof bn.avgMs === 'number'
+              ? {
+                  label: bn.label,
+                  avgMs: bn.avgMs,
+                  maxMs: typeof bn.maxMs === 'number' ? bn.maxMs : bn.avgMs,
+                }
+              : null;
+
+          const serverLog = Array.isArray(event.log)
+            ? (event.log as Array<{ title: string; bucket: string; ms: number }>)
+            : timingLog;
+
+          const logFile =
+            typeof event.logFile === 'string' ? event.logFile : null;
+
+          const rows = serverLog.map((row) => ({
+            jogo: row.title,
+            chamada: TIMING_BUCKET_LABEL[row.bucket] || row.bucket,
+            ms: row.ms,
+            s: Number((row.ms / 1000).toFixed(2)),
+            pass: (row as { pass?: string }).pass || '',
+          }));
+          console.groupCollapsed(
+            `[notas] log de timings (${rows.length} chamadas)` +
+              (logFile ? ` · ${logFile}` : '')
+          );
+          console.table(rows);
+          if (timings) console.log('[notas] resumo', timings);
+          if (bnView) console.log('[notas] gargalo', bnView);
+          if (logFile) console.log('[notas] arquivo', logFile);
+          console.groupEnd();
+
+          // UI já “terminou” com a Steam; RAWG/Meta só enriquece em silêncio
+          if (quietRawg) {
+            setQuietEnriching(false);
+            setProgress(null);
+            setMessage(
+              steamDone > 0
+                ? `Steam ok — ${steamDone} jogos` +
+                  (logFile ? ` · ${logFile}` : '')
+                : updated > 0
+                  ? `Notas atualizadas em ${updated} jogos` +
+                    (logFile ? ` · ${logFile}` : '')
+                  : 'Nenhuma nota pendente (já atualizadas nesta semana)'
+            );
+            return;
+          }
+
+          const doneMsg =
+            streamMsg ||
+            (updated > 0
+              ? `Notas concluídas — ${updated} atualizados`
+              : 'Nenhuma nota pendente');
+          feed = appendFeed(feed, [doneMsg]);
+
+          pushProgress(doneMsg, {
+            done: true,
+            timings,
+            bottleneck: bnView,
           });
           setMessage(
-            updated > 0
-              ? `Notas atualizadas em ${updated} jogos`
-              : 'Nenhuma nota pendente (já atualizadas nesta semana)'
+            bnView
+              ? `Notas ok · gargalo: ${bnView.label} (média ${formatDurationMs(bnView.avgMs)})` +
+                (logFile ? ` · ${logFile}` : '')
+              : updated > 0
+                ? `Notas atualizadas em ${updated} jogos` +
+                  (logFile ? ` · ${logFile}` : '')
+                : 'Nenhuma nota pendente (já atualizadas nesta semana)'
           );
         }
       });
@@ -519,11 +920,18 @@ export default function Dashboard() {
       setMessage('Erro ao buscar notas');
     } finally {
       setFetchingRatings(false);
-      setTimeout(() => setProgress(null), 2000);
+      setQuietEnriching(false);
+      clearLooking();
+      setTimeout(() => setProgress(null), 5000);
     }
-  }, [games.length, loadData]);
+  }, [games.length, loadData, markFresh, setLooking, clearLooking]);
 
-  const busy = syncing || syncingWishlist || fetchingRatings || fetchingDeals;
+  const busy =
+    syncing ||
+    syncingWishlist ||
+    fetchingRatings ||
+    quietEnriching ||
+    fetchingDeals;
 
   const runDealsFetch = useCallback(async (opts?: { ignoreLocalEmpty?: boolean; force?: boolean }) => {
     if (wishlist.length === 0 && !opts?.ignoreLocalEmpty) {
@@ -533,13 +941,15 @@ export default function Dashboard() {
 
     const force = opts?.force ?? true;
 
+    setTab('wishlist');
     setFetchingDeals(true);
+    clearLooking();
+    setFreshIds([]);
     setMessage('Buscando preços no IsThereAnyDeal...');
     let feed: string[] = [];
     let totalEligible = 0;
     let updated = 0;
     let scanned = 0;
-    let itemsSinceReload = 0;
 
     setProgress({
       label: 'Preparando busca de preços...',
@@ -563,7 +973,7 @@ export default function Dashboard() {
         return;
       }
 
-      await readNdjsonStream(response, async (event) => {
+      await readNdjsonStream(response, (event) => {
         const type = String(event.type || '');
 
         if (type === 'error') {
@@ -596,29 +1006,68 @@ export default function Dashboard() {
 
         if (type === 'looking') {
           const title = String(event.title || 'Jogo');
+          const itemId = typeof event.itemId === 'string' ? event.itemId : null;
           const current = Number(event.current) || 0;
           const total = Number(event.total) || totalEligible;
           const percent =
-            total > 0 ? Math.min(99, Math.round(((current - 1) / total) * 100)) : 5;
+            total > 0 ? Math.min(99, Math.round((current / total) * 100)) : 5;
+
+          if (itemId) setLooking(itemId, true, 'ITAD…');
 
           feed = appendFeed(feed, [`Consultando ${title}…`]);
           setProgress({
             label: `Consultando ${title}…`,
-            current: Math.max(0, current - 1),
+            current,
             total,
             percent: Math.max(percent, 3),
             tone: 'amber',
             feed,
           });
-          setMessage(`Consultando ${title}…`);
           return;
         }
 
         if (type === 'item') {
+          const itemId = typeof event.itemId === 'string' ? event.itemId : null;
           const current = Number(event.current) || 0;
           const total = Number(event.total) || totalEligible;
           const percent =
             total > 0 ? Math.min(99, Math.round((current / total) * 100)) : 50;
+
+          const found = Boolean(event.found);
+          const currentPrice = (event.currentPrice as number | null) ?? null;
+          const regularPrice = (event.regularPrice as number | null) ?? null;
+          const currency = (event.currency as string | null) ?? null;
+          const cut = (event.cut as number | null) ?? null;
+          const shopName = (event.shopName as string | null) ?? null;
+          const historicalLow = (event.historicalLow as number | null) ?? null;
+          const historicalLowShop =
+            (event.historicalLowShop as string | null) ?? null;
+          const url = (event.url as string | null) ?? null;
+
+          if (itemId) {
+            setLooking(itemId, false);
+            if (found) {
+              setWishlist((prev) =>
+                prev.map((w) =>
+                  w.id === itemId
+                    ? applyLiveDeal(w, {
+                        currentPrice,
+                        regularPrice,
+                        currency,
+                        cut,
+                        shopName,
+                        historicalLow,
+                        historicalLowShop,
+                        url,
+                        found,
+                      })
+                    : w
+                )
+              );
+              markFresh(itemId);
+              updated += 1;
+            }
+          }
 
           if (feed.length > 0 && feed[feed.length - 1].startsWith('Consultando ')) {
             feed = feed.slice(0, -1);
@@ -628,16 +1077,15 @@ export default function Dashboard() {
             dealPreviewLines([
               {
                 title: String(event.title || 'Jogo'),
-                currentPrice: (event.currentPrice as number | null) ?? null,
-                currency: (event.currency as string | null) ?? null,
-                cut: (event.cut as number | null) ?? null,
-                shopName: (event.shopName as string | null) ?? null,
+                currentPrice,
+                currency,
+                cut,
+                shopName,
               },
             ])
           );
 
           scanned += 1;
-          itemsSinceReload += 1;
           setProgress({
             label: `Preços: ${current} de ${total || '?'} itens`,
             current,
@@ -646,18 +1094,14 @@ export default function Dashboard() {
             tone: 'amber',
             feed,
           });
-
-          if (itemsSinceReload >= 5) {
-            itemsSinceReload = 0;
-            await loadData();
-          }
           return;
         }
 
         if (type === 'done') {
-          updated = Number(event.updated) || 0;
+          updated = Number(event.updated) || updated;
           scanned = Number(event.scanned) || scanned;
           totalEligible = Number(event.totalEligible) || totalEligible;
+          clearLooking();
           setProgress({
             label: `Preços concluídos (${updated} atualizados)`,
             current: totalEligible || scanned || updated,
@@ -685,9 +1129,10 @@ export default function Dashboard() {
       setMessage('Erro ao buscar preços');
     } finally {
       setFetchingDeals(false);
+      clearLooking();
       setTimeout(() => setProgress(null), 2000);
     }
-  }, [wishlist.length, loadData]);
+  }, [wishlist.length, loadData, markFresh, setLooking, clearLooking]);
 
   const runDailySync = useCallback(
     async (opts: { force?: boolean; stage?: 'library' | 'wishlist' | 'all' } = {}) => {
@@ -982,13 +1427,13 @@ export default function Dashboard() {
             type="button"
             onClick={() => toggleStore(store.id)}
             aria-pressed={on}
-            className={`text-sm font-medium px-3 py-2 rounded-lg border transition-colors ${
+            className={`inline-flex items-center whitespace-nowrap text-sm font-medium h-9 px-3 rounded-lg border transition-colors ${
               on
                 ? `${store.color} border-transparent`
                 : 'bg-transparent border-gray-600 text-gray-500 hover:border-gray-400 hover:text-gray-300'
             }`}
           >
-            {store.name}
+            {store.shortName}
             <span className={`ml-1.5 ${on ? 'opacity-90' : 'opacity-60'}`}>({count})</span>
           </button>
         );
@@ -1078,7 +1523,7 @@ export default function Dashboard() {
         {progress && (
           <div className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 space-y-2">
             <div className="flex items-center justify-between gap-3 text-sm">
-              <span className="text-gray-300 truncate">{progress.label}</span>
+              <span className="text-gray-200 truncate font-medium">{progress.label}</span>
               <span className="text-gray-400 tabular-nums shrink-0">
                 {progress.total > 0
                   ? `${progress.current}/${progress.total}`
@@ -1088,7 +1533,7 @@ export default function Dashboard() {
             </div>
             <div className="h-2.5 w-full rounded-full bg-gray-700 overflow-hidden">
               <div
-                className={`h-full rounded-full transition-all duration-500 ease-out ${
+                className={`h-full rounded-full transition-all duration-300 ease-out ${
                   progress.tone === 'amber'
                     ? 'bg-amber-500'
                     : progress.tone === 'indigo' || fetchingRatings
@@ -1098,20 +1543,72 @@ export default function Dashboard() {
                 style={{ width: `${Math.min(100, Math.max(0, progress.percent))}%` }}
               />
             </div>
+            {progress.bottleneck && (
+              <p className="text-xs text-amber-300/90">
+                Gargalo:{' '}
+                <span className="font-semibold">{progress.bottleneck.label}</span>
+                {' · '}média {formatDurationMs(progress.bottleneck.avgMs)}
+                {' · '}máx {formatDurationMs(progress.bottleneck.maxMs)}
+              </p>
+            )}
+            {progress.timings && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] tabular-nums">
+                {(
+                  [
+                    ['steam', 'Steam %'],
+                    ['steamLookup', 'Steam AppID'],
+                    ['rawg', 'RAWG/Meta'],
+                    ['save', 'Gravar DB'],
+                  ] as const
+                ).map(([key, name]) => {
+                  const stat = progress.timings?.[key];
+                  if (!stat) {
+                    return (
+                      <div
+                        key={key}
+                        className="rounded bg-gray-900/50 px-2 py-1.5 text-gray-600"
+                      >
+                        {name}
+                        <div className="text-gray-600">—</div>
+                      </div>
+                    );
+                  }
+                  const hot =
+                    progress.bottleneck?.label === name ||
+                    stat.avgMs >= SLOW_MS;
+                  return (
+                    <div
+                      key={key}
+                      className={`rounded px-2 py-1.5 ${
+                        hot
+                          ? 'bg-amber-950/60 text-amber-200 ring-1 ring-amber-700/50'
+                          : 'bg-gray-900/50 text-gray-400'
+                      }`}
+                    >
+                      {name}
+                      <div className="text-gray-200">
+                        ~{formatDurationMs(stat.avgMs)}
+                        <span className="text-gray-500">
+                          {' '}
+                          / máx {formatDurationMs(stat.maxMs)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {progress.feed && progress.feed.length > 0 && (
-              <ul className="max-h-20 overflow-hidden space-y-0.5 border-t border-gray-700/80 pt-2 font-mono text-[11px] leading-snug text-gray-400">
+              <ul className="border-t border-gray-700/80 pt-2 font-mono text-[11px] leading-snug text-gray-400 space-y-0.5">
                 {progress.feed.map((line, idx) => {
-                  const age = progress.feed!.length - 1 - idx;
-                  const opacity =
-                    age === 0 ? 1 : age === 1 ? 0.75 : age === 2 ? 0.5 : 0.35;
+                  const isLatest = idx === progress.feed!.length - 1;
                   return (
                     <li
-                      key={`${line}-${idx}`}
-                      className="truncate transition-opacity duration-300"
-                      style={{ opacity }}
+                      key={`${idx}-${line.slice(0, 48)}`}
+                      className={`truncate ${isLatest ? 'text-gray-300' : 'text-gray-500'}`}
                       title={line}
                     >
-                      <span className="text-gray-500 mr-1.5">›</span>
+                      <span className="text-indigo-400/70 mr-1.5">›</span>
                       {line}
                     </li>
                   );
@@ -1141,9 +1638,9 @@ export default function Dashboard() {
               return (
                 <div
                   key={store.id}
-                  className="bg-gray-700/40 rounded-lg px-3 py-2 flex items-center justify-between gap-2 min-h-[44px]"
+                  className="bg-gray-700/40 rounded-lg px-3 py-2 flex items-center justify-between gap-2 min-h-[44px] overflow-hidden"
                 >
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1 overflow-hidden">
                     <p className="text-sm font-medium truncate">{store.name}</p>
                     {linked ? (
                       <p className="text-xs text-green-400 truncate">
@@ -1159,7 +1656,7 @@ export default function Dashboard() {
                   {linked ? (
                     <button
                       onClick={() => unlinkPlatform(store.id)}
-                      className="text-[11px] text-red-400/80 hover:text-red-300 shrink-0"
+                      className="text-[11px] text-red-400/80 hover:text-red-300 shrink-0 whitespace-nowrap"
                       title="Desconectar"
                     >
                       Sair
@@ -1167,7 +1664,7 @@ export default function Dashboard() {
                   ) : (
                     <a
                       href={store.loginPath}
-                      className={`${store.color} text-xs font-semibold py-1.5 px-2.5 rounded shrink-0`}
+                      className={`${store.color} inline-flex items-center justify-center h-7 px-2.5 text-xs font-semibold rounded shrink-0 whitespace-nowrap`}
                     >
                       Entrar
                     </a>
@@ -1223,10 +1720,10 @@ export default function Dashboard() {
                       }}
                       className="bg-gray-700 text-white text-sm rounded px-3 py-2 min-w-[160px]"
                     >
-                      <option value="name">Nome</option>
-                      <option value="rawg">Nota RAWG</option>
-                      <option value="metacritic">Nota Metacritic</option>
                       <option value="steam">Reviews Steam %</option>
+                      <option value="metacritic">Nota Metacritic</option>
+                      <option value="rawg">Nota RAWG</option>
+                      <option value="name">Nome</option>
                     </select>
                   </label>
                   <label className="text-xs text-gray-400 flex flex-col gap-1">
@@ -1266,6 +1763,9 @@ export default function Dashboard() {
                   const data = parseGameData(game.gameData);
                   const playtime = Number(data.playtime_forever || 0);
                   const display = pickDisplayRating(game.ratings, librarySort);
+                  const isLooking = lookingIds.includes(game.id);
+                  const stageLabel = lookingStages[game.id];
+                  const justUpdated = freshIds.includes(game.id);
                   const sourceLabel =
                     display?.source === 'rawg'
                       ? 'RAWG'
@@ -1275,7 +1775,12 @@ export default function Dashboard() {
                           ? 'Steam'
                           : '';
                   return (
-                    <div key={game.id} className="bg-gray-700 p-4 rounded-lg">
+                    <div
+                      key={game.id}
+                      className={`bg-gray-700 p-4 rounded-lg transition-[outline,box-shadow,background-color] duration-300 ${
+                        isLooking ? 'live-looking' : ''
+                      } ${justUpdated ? 'live-just-updated' : ''}`}
+                    >
                       <div className="flex justify-between items-start gap-3 mb-2">
                         <h3 className="font-semibold leading-tight min-w-0 flex-1">
                           <GameTitleLink
@@ -1284,22 +1789,28 @@ export default function Dashboard() {
                             data={data}
                           />
                         </h3>
-                        <div className="w-12 shrink-0 flex flex-col items-center">
+                        <div className="w-14 shrink-0 flex flex-col items-center">
                           <div
                             className={`w-12 h-8 flex items-center justify-center rounded text-sm font-bold tabular-nums ${
                               display
                                 ? getRatingColor(display.value)
-                                : 'bg-gray-600 text-gray-300'
+                                : isLooking
+                                  ? 'bg-indigo-900/80 text-indigo-200 animate-pulse'
+                                  : 'bg-gray-600 text-gray-300'
                             }`}
                           >
                             {display
                               ? display.source === 'steam'
                                 ? `${Math.round(display.value)}%`
                                 : display.value
-                              : '—'}
+                              : isLooking
+                                ? '…'
+                                : '—'}
                           </div>
-                          <p className="h-4 w-full text-center text-[10px] leading-4 text-gray-400 mt-0.5 truncate">
-                            {sourceLabel || '\u00A0'}
+                          <p className="h-4 w-full text-center text-[10px] leading-4 text-indigo-300/90 mt-0.5 truncate">
+                            {isLooking && stageLabel
+                              ? stageLabel.replace(/…$/, '')
+                              : sourceLabel || '\u00A0'}
                           </p>
                         </div>
                       </div>
@@ -1389,8 +1900,15 @@ export default function Dashboard() {
                   const data = parseGameData(item.gameData);
                   const deal = itadDeal(item);
                   const hasCut = !!deal?.cut && deal.cut > 0;
+                  const isLooking = lookingIds.includes(item.id);
+                  const justUpdated = freshIds.includes(item.id);
                   return (
-                    <div key={item.id} className="bg-gray-700 p-4 rounded-lg">
+                    <div
+                      key={item.id}
+                      className={`bg-gray-700 p-4 rounded-lg transition-[outline,box-shadow,background-color] duration-300 ${
+                        isLooking ? 'live-looking' : ''
+                      } ${justUpdated ? 'live-just-updated' : ''}`}
+                    >
                       <div className="flex justify-between items-start gap-3 mb-2">
                         <h3 className="font-semibold leading-tight min-w-0 flex-1">
                           <GameTitleLink
@@ -1399,11 +1917,15 @@ export default function Dashboard() {
                             data={data}
                           />
                         </h3>
-                        {hasCut && (
+                        {hasCut ? (
                           <span className="shrink-0 text-xs font-bold bg-green-800 text-green-100 px-2 py-1 rounded tabular-nums">
                             -{deal!.cut}%
                           </span>
-                        )}
+                        ) : isLooking ? (
+                          <span className="shrink-0 text-[10px] text-amber-300/90 animate-pulse px-1">
+                            buscando…
+                          </span>
+                        ) : null}
                       </div>
                       <p className="text-xs text-gray-400 mb-3">{storeLabel(item.platform)}</p>
                       {deal && deal.currentPrice !== null ? (

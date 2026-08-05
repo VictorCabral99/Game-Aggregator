@@ -253,7 +253,7 @@ export class SteamAPI {
     try {
       const response = await axios.get(`${STEAM_STORE_BASE}/api/storesearch/`, {
         params: { term: q, l: 'english', cc: 'US' },
-        timeout: 10000,
+        timeout: 5000,
         validateStatus: () => true,
       });
 

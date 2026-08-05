@@ -18,3 +18,38 @@ body {
     text-wrap: balance;
   }
 }
+
+@keyframes live-pop {
+  0% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.55);
+    background-color: rgb(55 65 81);
+  }
+  35% {
+    box-shadow: 0 0 0 2px rgba(129, 140, 248, 0.7);
+    background-color: rgb(67 56 102);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+    background-color: rgb(55 65 81);
+  }
+}
+
+@keyframes live-looking {
+  0%,
+  100% {
+    outline-color: rgba(129, 140, 248, 0.25);
+  }
+  50% {
+    outline-color: rgba(129, 140, 248, 0.85);
+  }
+}
+
+.live-just-updated {
+  animation: live-pop 1.15s ease-out;
+}
+
+.live-looking {
+  outline: 1.5px solid rgba(129, 140, 248, 0.55);
+  outline-offset: 2px;
+  animation: live-looking 1.1s ease-in-out infinite;
+}

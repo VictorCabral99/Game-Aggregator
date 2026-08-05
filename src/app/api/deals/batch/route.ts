@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
 
         send({
           type: 'looking',
+          itemId: item.id,
           title,
           current: completed,
           total: eligible.length,
@@ -225,11 +226,17 @@ export async function POST(request: NextRequest) {
         completed += 1;
         send({
           type: 'item',
+          itemId: item.id,
           title,
           currentPrice: dealInfo?.currentPrice ?? null,
+          regularPrice: dealInfo?.regularPrice ?? null,
           currency: dealInfo?.currency ?? null,
           cut: dealInfo?.cut ?? null,
           shopName: dealInfo?.shopName ?? null,
+          historicalLow: dealInfo?.historicalLow ?? null,
+          historicalLowShop: dealInfo?.historicalLowShop ?? null,
+          url: dealInfo?.url ?? null,
+          found: Boolean(dealInfo),
           current: completed,
           total: eligible.length,
         });
