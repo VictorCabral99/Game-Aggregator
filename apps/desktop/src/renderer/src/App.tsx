@@ -504,14 +504,6 @@ export default function App(): JSX.Element {
     setSelected((i) => Math.min(i, visibleGames.length - 1));
   }, [visibleGames.length]);
 
-  // Shelf "Esquecidos bem avaliados" (P6-08): score ≥ 80 e nunca/raramente jogado.
-  const forgottenHighScore = useMemo(() => {
-    return games
-      .filter((g) => (ratings[g.id]?.score ?? 0) >= 80)
-      .filter((g) => !g.sources.some((s) => s.lastPlayedAt))
-      .slice(0, 6);
-  }, [games, ratings]);
-
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'F11') {
@@ -1120,29 +1112,6 @@ export default function App(): JSX.Element {
           <h2 className="recent__title">Continuar</h2>
           <div className="recent__row">
             {recentGames.map((game, i) => (
-              <GameCard
-                key={game.id}
-                game={game}
-                selected={false}
-                score={ratings[game.id]?.score}
-                ratingSummary={ratings[game.id]}
-                hideScore={hideNotes}
-                onSelect={() => {
-                  setSelected(0);
-                  setView({ kind: 'detail', gameId: game.id });
-                }}
-                onOpen={() => setView({ kind: 'detail', gameId: game.id })}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {view.kind === 'library' && filter === 'all' && !query && forgottenHighScore.length > 0 && (
-        <section className="recent" aria-label="Esquecidos bem avaliados">
-          <h2 className="recent__title">Esquecidos bem avaliados</h2>
-          <div className="recent__row">
-            {forgottenHighScore.map((game, i) => (
               <GameCard
                 key={game.id}
                 game={game}

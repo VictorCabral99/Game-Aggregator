@@ -781,7 +781,7 @@ Fazer o usuário **redescobrir** jogos que já possui e são bem avaliados, mas 
   - Tamanho em disco
   - Requisitos (proxy: tier low/med/high a partir de metadados, quando houver)
 - Filtros: “nota ≥ 80”, “nunca jogados”, “não jogados nos últimos 6 meses”
-- Prateleira inteligente: **“Esquecidos bem avaliados”** (high rating + low/zero playtime)
+- ~~Prateleira inteligente: “Esquecidos bem avaliados”~~ — **removida**; biblioteca = lista pura + ordenações
 
 #### O que NÃO será incluído ainda
 - Reviews textuais completas / UGC
@@ -809,7 +809,7 @@ Fazer o usuário **redescobrir** jogos que já possui e são bem avaliados, mas 
 #### Definition of Done
 - [ ] ≥90% dos jogos da lib de teste têm ao menos uma fonte de nota (ou “sem dados”)
 - [ ] Ordenar por nota e por playtime funciona offline após sync
-- [ ] Prateleira “Esquecidos bem avaliados” lista casos reais (ex.: nota alta + 0h)
+- [x] ~~Prateleira “Esquecidos bem avaliados”~~ removida (lista pura + sort)
 - [ ] Sync de notas respeita cache (segunda execução ≪ primeira em chamadas HTTP)
 - [ ] Paridade conceitual com o batch de ratings da web (`POST /api/ratings/batch`)
 

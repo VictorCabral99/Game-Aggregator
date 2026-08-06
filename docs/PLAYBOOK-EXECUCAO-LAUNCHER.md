@@ -599,13 +599,13 @@ Perfis multi-device (Fase 8), voice, temas complexos.
 ## Fase 6 — Avaliações e rediscovery
 
 ### Valor demonstrável
-Ordenar por nota; prateleira “Esquecidos bem avaliados” mostra jogo 85+ com 0h; offline após sync.
+Ordenar por nota / Steam % / nome / recentes; biblioteca em lista pura (sem shelf “Esquecidos”).
 
 ### Pré-requisitos
 Fase 3 (canonical). **Steam Store (público, sem key)** para % reviews. RAWG key opcional — **pausado temporariamente**. Reusar `@gagg/providers-meta`.
 
 ### Fora de escopo
-Wishlist/deals, reviews textuais UGC. **RAWG/Metacritic fetch** (comentado até API estabilizar).
+Wishlist/deals, reviews textuais UGC. **RAWG/Metacritic fetch** (comentado até API estabilizar). Shelf “Esquecidos bem avaliados”.
 
 ### Breakdown
 
@@ -618,7 +618,7 @@ Wishlist/deals, reviews textuais UGC. **RAWG/Metacritic fetch** (comentado até 
 | P6-05 | UI ficha: scores + breakdown | ✅ `GameDetailModal` com notas por fonte + stale indicator |
 | P6-06 | Sort: note, name, playtime, size, requirements tier | ✅ sort nome/Steam%/recentes (RAWG/Meta sort comentado) |
 | P6-07 | Filtros: nota≥80, never played, not played 6m | ✅ chip "Nota ≥ 80" + sort por nota |
-| P6-08 | Shelf “Esquecidos bem avaliados” (score≥80 & playtime≤60min) | ✅ shelf com score≥80 e nunca jogado |
+| P6-08 | Shelf “Esquecidos bem avaliados” | ❌ removida — lista pura + ordenações |
 | P6-09 | Setting esconder notas | ✅ `ui.hideRatings` no SettingsModal |
 | P6-10 | Indicador “notas de DD/MM” stale | ✅ badge "antigas" no header + indicador no modal |
 | P6-11 | Log de enrich (lookup HIT/MISS + review %) | ✅ console `[ratings]` + arquivo em userData/logs |
@@ -627,8 +627,7 @@ Wishlist/deals, reviews textuais UGC. **RAWG/Metacritic fetch** (comentado até 
 
 1. Sync notas em lib de 30+ jogos.  
 2. Contar chamadas HTTP na 2ª sync (deve cair via cache).  
-3. Ordenar por nota; validar top.  
-4. Encontrar item na shelf esquecidos.  
+4. Ordenar por Steam % / nome; validar top.  
 5. Offline: sort/filtros funcionam.  
 6. Jogo sem dados: “Sem avaliação”, não 0 falso.
 
@@ -636,7 +635,7 @@ Wishlist/deals, reviews textuais UGC. **RAWG/Metacritic fetch** (comentado até 
 
 - [x] ≥90% tentados têm nota ou “sem dados”
 - [x] Sorts offline
-- [x] Shelf útil com caso real
+- [x] Sem shelf “Esquecidos” (lista pura)
 - [x] Cache eficaz
 - [x] Regressão TV/gamepad na ficha
 - [x] Tag `phase-6-done`
