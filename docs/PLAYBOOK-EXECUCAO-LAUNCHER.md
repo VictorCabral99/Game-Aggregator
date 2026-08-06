@@ -313,14 +313,16 @@ Dedupe cross-store, install/update queue, ratings, wishlist, UI Heroic, Luna.
 | P2A-04 | `SteamProvider.scan()` | Retorna `ProviderGame[]` só instalados |
 | P2A-05 | Merge na library UI | Jogos Steam na grade com badge Steam (ainda podem ser “sources” flat) |
 | P2A-06 | Launch | `shell.openExternal('steam://rungameid/' + appid)` |
-| P2A-07 | Settings | Path Steam override manual |
-| P2A-08 | Diagnóstico | “Steam: N jogos · path · último scan” |
-| P2A-09 | Botão Sync | Rescan sem reiniciar app |
+| P2A-07 | Install | `shell.openExternal('steam://install/' + appid)` — abre página de instalação no Steam |
+| P2A-08 | Settings | Path Steam override manual |
+| P2A-09 | Diagnóstico | “Steam: N jogos · path · último scan” |
+| P2A-10 | Botão Sync | Rescan sem reiniciar app |
 
 **Gate 2.A (interno):**
 
 - [ ] ≥5 jogos Steam listados (ou todos se tiver menos)
 - [ ] Launch abre o jogo (ou cliente Steam pedindo install)
+- [ ] **Install abre página de instalação no Steam (steam://install/...)**
 - [ ] Steam ausente → estado “não encontrado”, app não crasha
 - [ ] Jogos locais da Fase 1 continuam na grade
 
@@ -335,15 +337,17 @@ Dedupe cross-store, install/update queue, ratings, wishlist, UI Heroic, Luna.
 | P2B-01 | Pin Legendary | Baixar release Windows; colocar em `resources/bin/legendary.exe`; versão no README |
 | P2B-02 | `runSidecar('legendary', args)` | timeout, capture stdout/stderr, no shell injection |
 | P2B-03 | Auth flow | Documentar `legendary auth` (usuário loga uma vez no terminal ou wizard mínimo colando status) |
-| P2B-04 | `legendary list-installed --json` | Parse → ProviderGame |
-| P2B-05 | Launch | `legendary launch <app_name>` |
-| P2B-06 | Fallback | Se sidecar falhar: botão “Abrir Epic Launcher” |
-| P2B-07 | Diagnóstico | versão legendary + last error |
+| P2B-04 | `legendary list-installed --json` | Parse → ProviderGame (raw_json enriquecido com `namespace/catalogItemId/appId`) |
+| P2B-05 | Launch | `legendary launch <app_name>` (fallback: protocolo EGS `com.epicgames.launcher://...?action=launch`) |
+| P2B-06 | Install | `legendary install <app_name> -y` (fallback: protocolo EGS `...?action=installer`) |
+| P2B-07 | Fallback protocolo EGS | Se sidecar ausente/falhar: abrir `com.epicgames.launcher://apps/...` |
+| P2B-08 | Diagnóstico | versão legendary + last error |
 
 **Gate 2.B:**
 
 - [ ] ≥1 jogo Epic lista e lança
-- [ ] Sem Legendary: mensagem clara + fallback
+- [ ] **Install abre instalador (Legendary ou protocolo EGS)**
+- [ ] Sem Legendary: mensagem clara + fallback protocolo
 - [ ] Steam + local intactos
 
 ---
@@ -354,10 +358,11 @@ Dedupe cross-store, install/update queue, ratings, wishlist, UI Heroic, Luna.
 |----|--------|---------|
 | P2C-01 | Pin gogdl | `resources/bin` + atribuição licença |
 | P2C-02 | Auth/list | Seguir docs gogdl; ou fallback Galaxy DB se auth atrasar |
-| P2C-03 | Launch | via gogdl ou path do exe instalado |
-| P2C-04 | Badge GOG + diagnóstico | |
+| P2C-03 | Launch | via gogdl ou path do exe instalado (fallback: `goggalaxy://openGameView/<productId>`) |
+| P2C-04 | Install | `gogdl download <appName> --platform windows --skip-dlcs` (fallback: `goggalaxy://openGameView/...`) |
+| P2C-05 | Badge GOG + diagnóstico | versão gogdl + last error |
 
-**Gate 2.C:** ≥1 jogo GOG ou estado indisponível explícito (se não houver conta/jogos, documentar evidência do fallback).
+**Gate 2.C:** ≥1 jogo GOG lista/lança/instala ou estado indisponível explícito (se não houver conta/jogos, documentar evidência do fallback).
 
 ---
 
@@ -365,11 +370,12 @@ Dedupe cross-store, install/update queue, ratings, wishlist, UI Heroic, Luna.
 
 | ID | Tarefa | Detalhe |
 |----|--------|---------|
-| P2D-01 | Pin Nile | |
-| P2D-02 | List/launch | |
-| P2D-03 | Placeholder Luna | Flag UI “em breve”, sem código de stream |
+| P2D-01 | Pin Nile | `resources/bin` + atribuição licença |
+| P2D-02 | List/launch | via Nile `list-installed` / `launch <id>` |
+| P2D-03 | Install | `nile install <id>` (fallback: abrir cliente Amazon Games local) |
+| P2D-04 | Placeholder Luna | Flag UI “em breve”, sem código de stream |
 
-**Gate 2.D:** Nile OK ou “indisponível”; app estável.
+**Gate 2.D:** Nile OK (list/launch/install) ou “indisponível”; app estável.
 
 ---
 
@@ -391,19 +397,23 @@ Ainda pode ser flat (`games` + `platform` + `external_id`). Introdução de `Gam
 ### Script de teste manual — Fase 2
 
 1. Máquina com Steam: Sync → jogos aparecem → launch 2 títulos.  
-2. Desligar Steam path (settings inválido) → erro localizado; local games OK.  
-3. Legendary auth + list-installed + launch 1 Epic.  
-4. GOG e Amazon: sucesso ou empty state honesto.  
-5. Sync all com um sidecar quebrado (renomear exe) → outros providers OK.  
-6. Reiniciar app → biblioteca de lojas persiste (re-scan ou cache local).  
-7. About mostra atribuições.
+2. **Steam: install → abre página de instalação no cliente (steam://install/...)**  
+3. Desligar Steam path (settings inválido) → erro localizado; local games OK.  
+4. Legendary auth + list-installed + launch 1 Epic.  
+5. **Epic: install → abre instalador (Legendary ou protocolo EGS)**  
+6. GOG e Amazon: list/launch/install sucesso ou empty state honesto.  
+7. Sync all com um sidecar quebrado (renomear exe) → outros providers OK.  
+8. Reiniciar app → biblioteca de lojas persiste (re-scan ou cache local).  
+9. About mostra atribuições.
 
 ### Gate 100% funcional — Fase 2
 
 - [ ] 2.A–2.E verdes
 - [ ] Steam launch OK
+- [ ] **Steam install abre página no cliente (steam://install/...)**
 - [ ] Epic launch OK (ou doc + issue se conta indisponível — preferir OK real)
-- [ ] GOG + Amazon: OK ou indisponível claro
+- [ ] **Epic install abre instalador (Legendary ou protocolo EGS)**
+- [ ] GOG + Amazon: OK (list/launch/install) ou indisponível claro
 - [ ] Diagnóstico por provider
 - [ ] Sem código-fonte Heroic no repo
 - [ ] Regressão Fase 1 (CRUD local)

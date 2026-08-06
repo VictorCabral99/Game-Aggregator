@@ -434,7 +434,7 @@ Cada fase é **independente, testável, entregável** e gera valor real ao usuá
 |------|-------------------|-----|
 | 0 | (dev) abrir shell, lançar Notepad, DB ok | `phase-0-done` |
 | 1 | Adicionar exes e jogar em fullscreen com lib persistente | `phase-1-done` |
-| 2 | Ver/jogar Steam (+ Epic/GOG/Amazon via sidecars) | `phase-2-done` |
+| 2 | **Ver/jogar/instalar Steam (+ Epic/GOG/Amazon via sidecars ou protocolo)** | `phase-2-done` |
 | 3 | Uma capa por jogo; sources múltiplas; busca/filtro | `phase-3-done` |
 | 4 | Consoles retro: entrada “Emulação” tipo pasta → jogos por console, ROMs da pasta padrão, emulador trocável | `phase-4-done` |
 | 5 | Usar só o controle em modo TV | `phase-5-done` |
@@ -559,25 +559,28 @@ Biblioteca passa a incluir jogos das lojas principais com launch legal — **pri
 
 **Epic (Legendary — sidecar)**
 - Bundlar Legendary pinado em `resources/bin` **ou** detectar instalação do usuário
-- `legendary list-installed` / launch por app name
-- Fallback: abrir Epic Launcher oficial se Legendary ausente/falhar
+- `legendary list-installed` / launch por app name / install `-y`
+- Fallback: abrir Epic Launcher oficial via protocolo `com.epicgames.launcher://apps/...?action=installer|launch` se Legendary ausente/falhar
+- Enriquecer `raw_json` com `namespace/catalogItemId/appId` para protocolo EGS estável
 
 **GOG (gogdl — sidecar)**
-- Preferir [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) para list/launch (mesmo backend do Heroic)
-- Fallback: ler Galaxy local / bridge HTTP já existente no agregador
+- Preferir [gogdl](https://github.com/Heroic-Games-Launcher/heroic-gogdl) para list/launch/install (mesmo backend do Heroic)
+- Fallback: abrir Galaxy via `goggalaxy://openGameView/<productId>` se gogdl ausente
 
 **Amazon / Prime Gaming (Nile — sidecar)**
-- Integração via Nile (listagem + launch path)
+- Integração via Nile (listagem + launch + install)
+- Fallback: abrir cliente Amazon Games local se Nile ausente
 - Luna: apenas placeholder/flag “streaming futuro” (sem implementação)
 
-**UI**
+**UI — Instalar / Iniciar**
 - Badge de plataforma na capa
-- Botão “Sincronizar bibliotecas”
-- Tela de status por provider (ok / não encontrado / erro / versão do sidecar)
+- Botão “Sincronizar bibliotecas” e tela de status por provider
+- **GameDetailModal**: botão **Instalar** para jogos não-instalados de loja (abre cliente oficial via protocolo); botão **▶ Iniciar** para instalados/locais/retro
+- CTA principal (Enter) muda dinamicamente: Instalar se a fonte padrão não estiver instalada, senão Iniciar
 
 #### O que NÃO será incluído ainda
 - Dedupe inteligente entre lojas
-- Instalador completo estilo Heroic (download queue / repair) — **launch + scan primeiro**; install/update fica backlog se necessário
+- Instalador completo estilo Heroic (download queue / repair) — **launch + scan + install (protocolo) primeiro**; install/update nativo fica backlog se necessário
 - Wishlist e ratings (já existem na web; no desktop entram nas Fases 6–7)
 - Emuladores
 - Qualquer cópia da UI do Heroic
@@ -603,9 +606,12 @@ Biblioteca passa a incluir jogos das lojas principais com launch legal — **pri
 
 #### Definition of Done
 - [ ] Steam: scan encontra jogos instalados e launch via protocolo funciona
-- [ ] Epic: launch via Legendary para ≥1 título
-- [ ] GOG: list/launch via gogdl (ou fallback documentado) para ≥1 título
-- [ ] Amazon: aparece via Nile ou estado “provider indisponível” claro
+- [ ] Steam: `steam://install/<appid>` abre página de instalação no cliente
+- [ ] Epic: launch via Legendary (ou protocolo EGS) para ≥1 título
+- [ ] Epic: `install` abre instalador via protocolo ou Legendary
+- [ ] GOG: list/launch/install via gogdl (ou fallback Galaxy) para ≥1 título
+- [ ] Amazon: list/launch/install via Nile (ou fallback cliente) para ≥1 título
+- [ ] UI: GameDetailModal mostra Instalar para não-instalados, Iniciar para instalados
 - [ ] Log de erros/versão por provider em Settings → Diagnóstico
 - [ ] Nenhum código-fonte do repositório Heroic vendored no monorepo
 
@@ -943,7 +949,7 @@ Performance, UX refinada, settings completos, distribuição confiável.
 |------|----------------------|------------|
 | 0 | Base sólida | App shell + ADR |
 | 1 | Jogar exes num só lugar | MVP instalável |
-| 2 | Lojas na mesma grade | Scan+launch Steam/Epic/GOG/Amazon |
+| 2 | **Lojas na mesma grade (scan+launch+install)** | Scan/launch/install Steam/Epic/GOG/Amazon |
 | 3 | Biblioteca limpa | Dedupe + metadados |
 | 4 | Retro unificado | Consoles + ROMs (pasta padrão) + emulador relativo |
 | 5 | Sofá / TV | Gamepad-first real |
@@ -964,7 +970,7 @@ Ecossistema existente:
 
 | Projeto | Força | Lacuna vs nossa visão |
 |---------|-------|------------------------|
-| [Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher) | Legendary/gogdl/Nile maduros; Electron+React; install/update Epic/GOG/Amazon | Sem Steam first-class; sem tese ratings/wishlist; UI não é console/TV; **GPL-3.0** |
+| [Heroic](https://github.com/Heroic-Games-Launcher/HeroicGamesLauncher) | Legendary/gogdl/Nile maduros; Electron+React; **install/update Epic/GOG/Amazon nativo**; Steam básico | Sem Steam first-class; sem tese ratings/wishlist; UI não é console/TV; **GPL-3.0** |
 | Playnite | Extensível, maduro, Windows, Steam+tudo | C#/.NET; UX nem sempre TV-native; foco menor em deals/ratings como produto |
 | LaunchBox/BigBox | Emulação/TV excelentes | Pago / menos lojas PC modernas como first-class |
 | Steam Big Picture | Polido | Só Steam |
