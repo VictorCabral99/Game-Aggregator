@@ -193,6 +193,18 @@ export function useGamepadNav({
         return;
       }
 
+      // DEBUG: log gamepad detectado
+      if (!s.seenPad) {
+        console.log('[gamepad] detectado:', {
+          id: pad.id,
+          index: pad.index,
+          connected: pad.connected,
+          buttons: pad.buttons.length,
+          axes: pad.axes.length,
+          mapping: pad.mapping,
+        });
+      }
+
       // Precisa de 1 interação do usuário (spec) — qualquer botão/stick ativa
       if (anyInput(pad)) {
         s.seenPad = true;
@@ -228,6 +240,7 @@ export function useGamepadNav({
     const onConnected = () => {
       // força Chromium a atualizar a lista
       void navigator.getGamepads?.();
+      console.log('[gamepad] gamepadconnected event fired');
     };
     window.addEventListener('gamepadconnected', onConnected);
     window.addEventListener('gamepaddisconnected', onConnected);
