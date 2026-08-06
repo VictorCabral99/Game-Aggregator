@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUserId, sleep, mapPool } from '@/lib/auth-helpers';
 import { ITADAPI } from '@/lib/itad-api';
 import { prisma } from '@/lib/prisma';
+import { isDealEligible } from '@/lib/sync-eligibility';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -59,12 +60,9 @@ export async function POST(request: NextRequest) {
   });
 
   const staleCutoff = Date.now() - FRESH_MS;
-  const eligible = items.filter((item) => {
-    if (force) return true;
-    const deal = item.deals.find((d) => d.source === 'itad');
-    if (!deal || deal.currentPrice === null) return true;
-    return deal.lastUpdated.getTime() < staleCutoff;
-  });
+  const eligible = items.filter((item) =>
+    isDealEligible(item.deals, force, staleCutoff)
+  );
 
   const itad = new ITADAPI(
     process.env.ITAD_API_KEY,

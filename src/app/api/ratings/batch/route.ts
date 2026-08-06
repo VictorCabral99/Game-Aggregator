@@ -3,6 +3,11 @@ import { requireUserId, sleep, mapPool } from '@/lib/auth-helpers';
 import { SteamAPI } from '@/lib/steam-api';
 import { createRatingsFileLog } from '@/lib/ratings-log';
 import { prisma } from '@/lib/prisma';
+import {
+  isFreshUseful,
+  ratingOf,
+  resolveSteamAppId,
+} from '@/lib/sync-eligibility';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -57,40 +62,6 @@ function ndjsonResponse(
       'X-Accel-Buffering': 'no',
     },
   });
-}
-
-function resolveSteamAppId(
-  platform: string,
-  externalId: string,
-  gameData: Record<string, unknown>
-): number | null {
-  if (platform === 'steam') {
-    const fromExternal = parseInt(externalId, 10);
-    if (!Number.isNaN(fromExternal) && fromExternal > 0) return fromExternal;
-  }
-  const fromData = gameData.appid ?? gameData.steam_appid;
-  if (fromData !== undefined && fromData !== null && fromData !== '') {
-    const n =
-      typeof fromData === 'number' ? fromData : parseInt(String(fromData), 10);
-    if (!Number.isNaN(n) && n > 0) return n;
-  }
-  return null;
-}
-
-function ratingOf(
-  ratings: { source: string; rating: number | null; lastUpdated: Date }[],
-  source: string
-): { rating: number | null; lastUpdated: Date } | null {
-  const row = ratings.find((r) => r.source === source);
-  return row ? { rating: row.rating, lastUpdated: row.lastUpdated } : null;
-}
-
-function isFreshUseful(
-  row: { rating: number | null; lastUpdated: Date } | null,
-  staleCutoff: number
-) {
-  if (!row || row.rating === null || row.rating <= 0) return false;
-  return row.lastUpdated.getTime() >= staleCutoff;
 }
 
 export async function POST(request: NextRequest) {
