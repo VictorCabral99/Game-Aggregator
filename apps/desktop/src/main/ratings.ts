@@ -44,9 +44,10 @@ function isRetroOnly(game: Game): boolean {
 }
 
 /** Download de capa só para retro — lojas já trazem coverUrl no sync. */
-function needsCoverDownload(game: Game): boolean {
-  if (game.coverPath) return false;
-  return game.sources.some((s) => s.platform === 'emulator');
+function needsCoverDownload(game: Game, force = false): boolean {
+  if (!game.sources.some((s) => s.platform === 'emulator')) return false;
+  if (force) return true;
+  return !game.coverPath;
 }
 
 /** Índice: nota Steam útil + fresca. */
@@ -353,7 +354,7 @@ export async function streamEnrichLibrary(
   const index = force ? undefined : buildSteamRatingsIndex(RATINGS_TTL_MS);
   const maxGames = opts?.maxGames && opts.maxGames > 0 ? opts.maxGames : undefined;
 
-  let coverQueue = games.filter((g) => needsCoverDownload(g)).sort(sortRetroFirst);
+  let coverQueue = games.filter((g) => needsCoverDownload(g, force)).sort(sortRetroFirst);
   if (maxGames && coverQueue.length > maxGames) {
     coverQueue = coverQueue.slice(0, maxGames);
   }

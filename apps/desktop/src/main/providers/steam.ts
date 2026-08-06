@@ -86,7 +86,16 @@ export class SteamProvider implements GameProvider {
     } catch {
       // VDF corrompido → usa apenas o root
     }
-    return [...new Set(folders)];
+    // Dedupa por path normalizado (VDF costuma repetir o root com casing diferente).
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const f of folders) {
+      const key = f.replace(/[/\\]+$/, '').toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(f);
+    }
+    return out;
   }
 
   async scan(): Promise<ProviderGame[]> {

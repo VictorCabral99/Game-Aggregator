@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import { getSetting, getWishlistRepository } from '../db';
 import type { WishlistAddInput } from '../../shared/api';
 import { resolveSteamId } from '../providers/steam-library';
-import { importSteamWishlist, searchItadGames, syncWishlistPrices } from '../wishlist';
+import { importSteamWishlist, searchItadGames, syncWishlistAll } from '../wishlist';
 
 export function registerWishlistHandlers(): void {
   ipcMain.handle('wishlist:list', () => getWishlistRepository().list());
@@ -24,7 +24,7 @@ export function registerWishlistHandlers(): void {
 
   ipcMain.handle('wishlist:search', (_event, query: string) => searchItadGames(query));
 
-  ipcMain.handle('wishlist:sync-prices', () => syncWishlistPrices());
+  ipcMain.handle('wishlist:sync-prices', () => syncWishlistAll());
 
   ipcMain.handle('wishlist:import-steam', () => importSteamWishlist());
 

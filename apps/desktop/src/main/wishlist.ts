@@ -1,6 +1,7 @@
 import { Notification } from 'electron';
 import { ITADAPI, SteamAPI } from '@gagg/providers-meta';
 import { getCacheRow, getSetting, getWishlistRepository, setSetting, upsertCache } from './db';
+import type { WishlistRepository } from './db/wishlist';
 import { resolveSteamApiKey, resolveSteamId } from './providers/steam-library';
 import type {
   ITADSearchResult,
@@ -13,6 +14,11 @@ import type {
 const PRICE_TTL_MS = 6 * 3600 * 1000; // 6h
 const LOOKUP_TTL_MS = 24 * 3600 * 1000; // busca/dedupe 24h
 const CONCURRENCY = 2;
+
+function steamCover(appid: number | string): string {
+  // header.jpg existe pra quase todo app; library_600x900 falha em vários
+  return `https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/header.jpg`;
+}
 
 function itadKey(): string {
   return process.env.ITAD_API_KEY ?? getSetting('keys.itad') ?? '';
@@ -79,6 +85,37 @@ function checkAlert(entry: WishlistEntry, deal: { currentPrice: number | null; c
   } else {
     setSetting(alertKey, '');
   }
+}
+
+const COVER_BACKFILL_TTL_MS = 7 * 24 * 3600 * 1000; // 7 dias
+
+/** Tenta preencher capa pra entries sem steamAppId + sem coverUrl (ex: Amazon). */
+async function backfillCovers(entries: WishlistEntry[], repo: WishlistRepository): Promise<void> {
+  const needCover = entries.filter((e) => !e.steamAppId && !e.coverUrl);
+  if (needCover.length === 0) return;
+
+  const { SteamAPI } = await import('@gagg/providers-meta');
+  const steam = new SteamAPI();
+
+  await mapPool(needCover, 1, async (entry) => {
+    const cacheKey = `wl:cover-backfill:${entry.title.trim().toLowerCase()}`;
+    const cached = getCacheRow(cacheKey);
+    if (cached && Date.now() - new Date(cached.fetched_at).getTime() < COVER_BACKFILL_TTL_MS) return;
+
+    try {
+      const result = await steam.findAppIdByTitle(entry.title);
+      if (result.appid) {
+        const appId = String(result.appid);
+        repo.update(entry.id, {
+          steamAppId: appId,
+          coverUrl: steamCover(result.appid),
+        });
+      }
+    } catch {
+      // lookup falhou — reagenda em 7d
+    }
+    upsertCache(cacheKey, '1');
+  });
 }
 
 export async function syncWishlistPrices(): Promise<WishlistSyncResult> {
@@ -152,6 +189,14 @@ export async function syncWishlistPrices(): Promise<WishlistSyncResult> {
   return { attempted: entries.length, updated, noKey: false, alerts };
 }
 
+/** Sincroniza preços e preenche capas faltantes (ex: Amazon). */
+export async function syncWishlistAll(): Promise<WishlistSyncResult> {
+  const result = await syncWishlistPrices();
+  const repo = getWishlistRepository();
+  await backfillCovers(repo.list(), repo);
+  return result;
+}
+
 export async function searchItadGames(query: string): Promise<ITADSearchResult[]> {
   const q = query.trim();
   if (!q) return [];
@@ -203,14 +248,31 @@ export async function importSteamWishlist(): Promise<SteamWishlistImportResult> 
           // ITAD fora / rate-limit: importa o título mesmo sem preço
         }
       }
-      if (deal?.itadId && repo.has(deal.itadId)) {
+
+      const appId = String(game.appid);
+      const cover = steamCover(game.appid);
+      const existing =
+        (deal?.itadId ? repo.findByItadId(deal.itadId) : null) ??
+        repo.findBySteamAppId(appId) ??
+        repo.findByTitle(game.name);
+
+      if (existing) {
+        if (!existing.steamAppId || !existing.coverUrl || existing.coverUrl.includes('library_600x900')) {
+          repo.update(existing.id, {
+            steamAppId: existing.steamAppId || appId,
+            coverUrl: cover,
+          });
+        }
         skipped += 1;
         continue;
       }
+
       const entry = repo.add({
         title: game.name,
         itadId: deal?.itadId ?? null,
         slug: deal?.slug ?? null,
+        steamAppId: appId,
+        coverUrl: cover,
         alertEnabled: true,
       });
       if (deal) {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { ITADSearchResult, WishlistAlert, WishlistEntry } from '../../../shared/api';
+import { wishlistCoverCandidates } from '../lib/wishlist-cover';
 import {
   isHistoricalLowDeal,
   sortWishlistEntries,
@@ -9,38 +10,44 @@ import {
 interface Props {
   onClose: () => void;
   onAlerts?: (alerts: WishlistAlert[]) => void;
-  /** Painel do menu lateral (sem backdrop). */
+  onMenu?: () => void;
   embedded?: boolean;
 }
 
-function priceLabel(entry: WishlistEntry): string {
-  const p = entry.price;
-  if (!p?.currentPrice) return 'Sem preço';
-  const cur = p.currency ?? entry.currency ?? '';
-  return `${p.currentPrice.toFixed(2)} ${cur}`;
+function formatMoney(amount: number | null | undefined, currency: string): string {
+  if (amount == null) return '—';
+  const code = (currency || 'BRL').toUpperCase();
+  try {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: code === 'BRL' || code === 'R$' ? 'BRL' : code,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `R$ ${amount.toFixed(2)}`;
+  }
 }
 
-function dateLabel(iso: string | null): string {
-  if (!iso) return 'nunca';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return 'nunca';
-  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-}
-
-interface RowProps {
+interface CardProps {
   entry: WishlistEntry;
   onUpdate: (
     id: string,
-    patch: Partial<{ targetPrice: number | null; alertEnabled: boolean; preferredStores: string[] }>
+    patch: Partial<{ targetPrice: number | null; alertEnabled: boolean }>
   ) => Promise<void>;
   onRemove: (id: string) => Promise<void>;
   onOpenOffer: (entry: WishlistEntry) => void;
 }
 
-function WishlistRow({ entry, onUpdate, onRemove, onOpenOffer }: RowProps): JSX.Element {
+function WishlistCard({ entry, onUpdate, onRemove, onOpenOffer }: CardProps): JSX.Element {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [target, setTarget] = useState<string>(entry.targetPrice?.toString() ?? '');
-  const [stores, setStores] = useState<string>(entry.preferredStores.join(', '));
+  const [coverIdx, setCoverIdx] = useState(0);
+  const [coverFailed, setCoverFailed] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+
+  const candidates = useMemo(() => wishlistCoverCandidates(entry), [entry]);
+  const cover = !coverFailed ? candidates[coverIdx] ?? null : null;
 
   const saveTarget = () => {
     const v = target.trim() === '' ? null : Number(target);
@@ -48,107 +55,122 @@ function WishlistRow({ entry, onUpdate, onRemove, onOpenOffer }: RowProps): JSX.
     void onUpdate(entry.id, { targetPrice: v });
   };
 
-  const saveStores = () => {
-    const parsed = stores
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (JSON.stringify(parsed) !== JSON.stringify(entry.preferredStores)) {
-      void onUpdate(entry.id, { preferredStores: parsed });
-    }
-  };
-
   const p = entry.price;
-  const hasDeal = Boolean(p && p.currentPrice !== null);
+  const currency = p?.currency ?? entry.currency ?? '';
   const onSale = Boolean(p?.cutPercent && p.cutPercent > 0);
   const histLow = isHistoricalLowDeal(entry);
+  const hasOffer = Boolean(p?.url);
 
   return (
-    <li className={`wishlist__row ${histLow ? 'wishlist__row--hist-low' : ''}`}>
-      <div className="wishlist__row-main">
-        <strong className="wishlist__title">{entry.title}</strong>
-        {histLow && <span className="wishlist__hist-badge">Mínimo histórico</span>}
-        {p?.shopName && <span className="wishlist__shop">{p.shopName}</span>}
-      </div>
-      <div className="wishlist__price">
-        {onSale && <span className="wishlist__cut-badge">-{p!.cutPercent}%</span>}
-        <span className={`wishlist__current ${onSale ? 'wishlist__current--sale' : ''}`}>
-          {priceLabel(entry)}
-        </span>
-        {p?.regularPrice && p.regularPrice > 0 && (
-          <span className="wishlist__regular">
-            {p.regularPrice.toFixed(2)} {p.currency ?? ''}
-          </span>
-        )}
-      </div>
-      <div className="wishlist__low">
-        <small>Mínimo histórico</small>
-        <span>
-          {p?.historicalLow != null
-            ? `${p.historicalLow.toFixed(2)} ${p.currency ?? ''}${p.historicalLowShop ? ` (${p.historicalLowShop})` : ''}`
-            : 'Sem dados'}
-        </span>
-      </div>
-      <div className="wishlist__controls">
-        <input
-          type="number"
-          step="0.01"
-          min="0"
-          className="wishlist__target"
-          placeholder="Preço alvo"
-          value={target}
-          onChange={(e) => setTarget(e.target.value)}
-          onBlur={saveTarget}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          }}
-        />
-        <label className="wishlist__alert">
-          <input
-            type="checkbox"
-            checked={entry.alertEnabled}
-            onChange={(e) => void onUpdate(entry.id, { alertEnabled: e.target.checked })}
+    <li className={`wl-card ${histLow ? 'wl-card--hist-low' : ''}`}>
+      <div className="wl-card__cover" aria-hidden="true">
+        {cover ? (
+          <img
+            src={cover}
+            alt=""
+            loading="lazy"
+            onError={() => {
+              setCoverIdx((i) => {
+                if (i + 1 < candidates.length) return i + 1;
+                setCoverFailed(true);
+                return i;
+              });
+            }}
           />
-          Alerta
-        </label>
-        <input
-          type="text"
-          className="wishlist__stores"
-          placeholder="Lojas pref. (ex.: Steam, Nuuvem)"
-          title="Lojas preferidas separadas por vírgula"
-          value={stores}
-          onChange={(e) => setStores(e.target.value)}
-          onBlur={saveStores}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-          }}
-        />
-        {p?.url && (
-          <button type="button" className="wishlist__offer" onClick={() => onOpenOffer(entry)}>
-            Abrir oferta
-          </button>
-        )}
-        {confirmRemove ? (
-          <>
-            <button type="button" className="danger" onClick={() => void onRemove(entry.id)}>
-              Confirmar
-            </button>
-            <button type="button" onClick={() => setConfirmRemove(false)}>Cancelar</button>
-          </>
         ) : (
-          <button type="button" className="danger-ghost" onClick={() => setConfirmRemove(true)}>
-            Remover
+          <span className="wl-card__ph">{entry.title.slice(0, 2)}</span>
+        )}
+        {onSale && <span className="wl-card__cut">-{p!.cutPercent}%</span>}
+        {histLow && <span className="wl-card__badge">No mínimo</span>}
+      </div>
+
+      <div className="wl-card__body">
+        <strong className="wl-card__title" title={entry.title}>
+          {entry.title}
+        </strong>
+        {p?.shopName && <span className="wl-card__shop">{p.shopName}</span>}
+
+        <div className="wl-card__prices">
+          <div className="wl-card__price">
+            <span>Cheio</span>
+            <strong className="wl-card__full">{formatMoney(p?.regularPrice, currency)}</strong>
+          </div>
+          <div className="wl-card__price">
+            <span>Mínimo</span>
+            <strong className={histLow ? 'wl-card__low wl-card__low--active' : 'wl-card__low'}>
+              {formatMoney(p?.historicalLow, currency)}
+            </strong>
+          </div>
+          <div className="wl-card__price wl-card__price--now">
+            <span>Atual</span>
+            <strong className={onSale ? 'wl-card__now wl-card__now--sale' : 'wl-card__now'}>
+              {formatMoney(p?.currentPrice, currency)}
+            </strong>
+          </div>
+        </div>
+
+        <div className="wl-card__actions">
+          {hasOffer && (
+            <button type="button" className="primary" onClick={() => onOpenOffer(entry)}>
+              Oferta
+            </button>
+          )}
+          <button type="button" onClick={() => setShowMore((v) => !v)}>
+            {showMore ? 'Menos' : 'Mais'}
           </button>
+        </div>
+
+        {showMore && (
+          <div className="wl-card__panel">
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              className="wl-card__target"
+              placeholder="Alvo"
+              title="Preço alvo"
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              onBlur={saveTarget}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              }}
+            />
+            <label className="wl-card__alert">
+              <input
+                type="checkbox"
+                checked={entry.alertEnabled}
+                onChange={(e) => void onUpdate(entry.id, { alertEnabled: e.target.checked })}
+              />
+              Alerta
+            </label>
+            {confirmRemove ? (
+              <>
+                <button type="button" className="danger" onClick={() => void onRemove(entry.id)}>
+                  Confirmar
+                </button>
+                <button type="button" onClick={() => setConfirmRemove(false)}>
+                  Cancelar
+                </button>
+              </>
+            ) : (
+              <button type="button" className="danger-ghost" onClick={() => setConfirmRemove(true)}>
+                Remover
+              </button>
+            )}
+          </div>
         )}
       </div>
-      {p?.fetchedAt && hasDeal && (
-        <span className="wishlist__stale">atualizado {dateLabel(p.fetchedAt)}</span>
-      )}
     </li>
   );
 }
 
-export default function WishlistModal({ onClose, onAlerts, embedded = false }: Props): JSX.Element {
+export default function WishlistModal({
+  onClose,
+  onAlerts,
+  onMenu,
+  embedded = false,
+}: Props): JSX.Element {
   const [entries, setEntries] = useState<WishlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -159,7 +181,6 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
   const [syncing, setSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<WishlistSortMode>('price');
 
   const sortedEntries = useMemo(
@@ -259,7 +280,7 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
       const res = await window.api.wishlistImportSteam();
       if (res.error) setMessage(res.error);
       else if (res.warning) setMessage(res.warning);
-      else setMessage(`Wishlist Steam importada: ${res.imported} novos, ${res.skipped} já existentes`);
+      else setMessage(`Wishlist Steam: ${res.imported} novos, ${res.skipped} atualizados/já existentes`);
       await load();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : String(err));
@@ -270,7 +291,6 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
 
   const remove = async (id: string) => {
     await window.api.wishlistRemove(id);
-    setConfirmRemoveId(null);
     await load();
   };
 
@@ -280,27 +300,38 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
 
   const updateEntry = async (
     id: string,
-    patch: Partial<{ targetPrice: number | null; alertEnabled: boolean; preferredStores: string[] }>
+    patch: Partial<{ targetPrice: number | null; alertEnabled: boolean }>
   ) => {
     await window.api.wishlistUpdate({ id, patch });
     await load();
   };
 
   const body = (
-      <>
-        <div className="modal__header">
-          <h2>Wishlist & promoções</h2>
+    <>
+      <header className="wishlist-page__header">
+        {embedded && onMenu && (
+          <button
+            type="button"
+            className="header__menu-btn"
+            title="Menu (Start)"
+            aria-label="Abrir menu"
+            onClick={onMenu}
+          >
+            ☰
+          </button>
+        )}
+        <div className="wishlist-page__heading">
+          <h2>Wishlist</h2>
           <span className="badge">{entries.length} jogo(s)</span>
-          {!embedded && (
-            <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
-              ×
-            </button>
-          )}
         </div>
-
+        {!embedded && (
+          <button type="button" className="modal__close" onClick={onClose} aria-label="Fechar">
+            ×
+          </button>
+        )}
         <div className="wishlist__actions">
           <button type="button" className="primary" disabled={syncing} onClick={() => void syncPrices()}>
-            {syncing ? 'Buscando preços…' : 'Sync preços'}
+            {syncing ? 'Buscando…' : 'Sync preços'}
           </button>
           <button type="button" disabled={importing} onClick={() => void importSteam()}>
             {importing ? 'Importando…' : 'Importar Steam'}
@@ -321,91 +352,93 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
               onChange={(e) => setSortMode(e.target.value as WishlistSortMode)}
               aria-label="Ordenar wishlist"
             >
-              <option value="price">Preço (menor)</option>
-              <option value="discount">Desconto (maior)</option>
+              <option value="price">Preço</option>
+              <option value="discount">Desconto</option>
             </select>
           </label>
         </div>
+      </header>
 
-        {adding && (
-          <div className="wishlist__add">
+      {adding && (
+        <div className="wishlist__add">
+          <input
+            autoFocus
+            type="search"
+            className="search"
+            placeholder="Buscar jogo no ITAD… (ex.: Hollow Knight)"
+            value={query}
+            onChange={(e) => void search(e.target.value)}
+          />
+          {searching && <p className="hint">Buscando…</p>}
+          {results && results.length > 0 && (
+            <ul className="wishlist__results">
+              {results.map((r) => (
+                <li key={r.id}>
+                  <button type="button" className="wishlist__result" onClick={() => void addEntry(r.title, r)}>
+                    <strong>{r.title}</strong>
+                    <span className="wishlist__result-meta">
+                      {r.type} · {r.slug}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="wishlist__manual">
             <input
-              autoFocus
-              type="search"
-              className="search"
-              placeholder="Buscar jogo no ITAD… (ex.: Hollow Knight)"
-              value={query}
-              onChange={(e) => void search(e.target.value)}
+              type="text"
+              placeholder="Ou adicione manualmente (título)"
+              value={manualTitle}
+              onChange={(e) => setManualTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && manualTitle.trim()) void addEntry(manualTitle);
+              }}
             />
-            {searching && <p className="hint">Buscando…</p>}
-            {results && results.length > 0 && (
-              <ul className="wishlist__results">
-                {results.map((r) => (
-                  <li key={r.id}>
-                    <button type="button" className="wishlist__result" onClick={() => void addEntry(r.title, r)}>
-                      <strong>{r.title}</strong>
-                      <span className="wishlist__result-meta">
-                        {r.type} · {r.slug}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="wishlist__manual">
-              <input
-                type="text"
-                placeholder="Ou adicione manualmente (título)"
-                value={manualTitle}
-                onChange={(e) => setManualTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && manualTitle.trim()) void addEntry(manualTitle);
-                }}
-              />
-              <button type="button" disabled={!manualTitle.trim()} onClick={() => void addEntry(manualTitle)}>
-                Adicionar
-              </button>
-            </div>
+            <button type="button" disabled={!manualTitle.trim()} onClick={() => void addEntry(manualTitle)}>
+              Adicionar
+            </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {message && <p className="hint wishlist__message">{message}</p>}
+      {message && <p className="hint wishlist__message">{message}</p>}
 
-        {loading ? (
-          <p className="emulation__empty">Carregando…</p>
-        ) : entries.length === 0 ? (
-          <div className="emulation__empty">
-            <strong>Wishlist vazia</strong>
-            <span>
-              Clique em <em>Importar Steam</em> (wishlist pública no perfil) ou adicione jogos
-              manualmente para acompanhar preços.
-            </span>
-          </div>
-        ) : (
-          <ul className="wishlist__list">
-            {sortedEntries.map((entry) => (
-              <WishlistRow
-                key={entry.id}
-                entry={entry}
-                onUpdate={updateEntry}
-                onRemove={remove}
-                onOpenOffer={openOffer}
-              />
-            ))}
-          </ul>
-        )}
+      {loading ? (
+        <p className="emulation__empty">Carregando…</p>
+      ) : entries.length === 0 ? (
+        <div className="emulation__empty wishlist-page__empty">
+          <strong>Wishlist vazia</strong>
+          <span>
+            Clique em <em>Importar Steam</em> (wishlist pública) — isso também preenche as capas.
+          </span>
+        </div>
+      ) : (
+        <ul className="wl-grid">
+          {sortedEntries.map((entry) => (
+            <WishlistCard
+              key={entry.id}
+              entry={entry}
+              onUpdate={updateEntry}
+              onRemove={remove}
+              onOpenOffer={openOffer}
+            />
+          ))}
+        </ul>
+      )}
 
-        {!embedded && (
-          <div className="modal__actions">
-            <button type="button" onClick={onClose}>Fechar (Esc)</button>
-          </div>
-        )}
-      </>
+      {!embedded && (
+        <div className="modal__actions">
+          <button type="button" onClick={onClose}>
+            Fechar (Esc)
+          </button>
+        </div>
+      )}
+    </>
   );
 
   if (embedded) {
     return (
-      <div className="wishlist-page" role="region" aria-label="Wishlist">
+      <div className="wishlist-page" role="region" aria-label="Wishlist" data-pad-root="1">
         {body}
       </div>
     );

@@ -126,8 +126,9 @@ function coverCandidatesStore(game: Game): string[] {
 /** Baixa a capa de um jogo para o cache em disco e atualiza cover_path (P3-10/11). */
 export async function downloadCoverForGame(game: Game): Promise<boolean> {
   const isRetro = game.sources.some((s) => s.platform === 'emulator');
+  // Retro: Libretro primeiro (boxart). coverUrl/Steam no fim — evita capa errada de lookup frouxo.
   const candidates = isRetro
-    ? [...coverCandidatesStore(game), ...(await coverCandidatesForRetro(game))]
+    ? [...(await coverCandidatesForRetro(game)), ...coverCandidatesStore(game)]
     : coverCandidatesStore(game);
 
   if (candidates.length === 0) {

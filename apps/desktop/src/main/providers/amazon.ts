@@ -35,7 +35,9 @@ export class AmazonProvider extends SidecarProvider {
     return this.launch(['launch', id]);
   }
 
-  installApp(id: string) {
-    return this.launch(['install', id]);
+  installApp(id: string, installPath?: string) {
+    const args = ['install', id];
+    if (installPath) args.push('--path', installPath);
+    return this.launch(args);
   }
 }

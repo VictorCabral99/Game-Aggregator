@@ -12,11 +12,12 @@ import { registerProviderHandlers } from './ipc/providers';
 import { registerEmulationHandlers } from './ipc/emulation';
 import { registerRatingsHandlers } from './ipc/ratings';
 import { registerWishlistHandlers } from './ipc/wishlist';
+import { registerOrganizeHandlers } from './ipc/organize';
 import { registerAuthHandlers } from './auth';
 import { registerPlatformAuthHandlers } from './platform-auth';
 import { registerMoonlightHandlers } from './ipc/moonlight';
 import { initTelemetry, registerSystemHandlers } from './ipc/system';
-import { syncWishlistPrices } from './wishlist';
+import { syncWishlistAll } from './wishlist';
 import { getSetting } from './db';
 
 protocol.registerSchemesAsPrivileged([
@@ -72,6 +73,7 @@ app.whenReady().then(() => {
   registerEmulationHandlers();
   registerRatingsHandlers();
   registerWishlistHandlers();
+  registerOrganizeHandlers();
   registerAuthHandlers();
   registerPlatformAuthHandlers();
   registerMoonlightHandlers();
@@ -80,7 +82,7 @@ app.whenReady().then(() => {
   // P7-10: sync periódico de preços enquanto o app está aberto (6h).
   const priceSyncMs = 6 * 3600 * 1000;
   setInterval(() => {
-    void syncWishlistPrices().catch(() => undefined);
+    void syncWishlistAll().catch(() => undefined);
   }, priceSyncMs);
 
   createWindow();

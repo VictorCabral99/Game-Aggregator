@@ -261,6 +261,55 @@ export interface LocalGamesScanResult {
   added: number;
 }
 
+export type OrganizeFolder = 'Epic' | 'GOG' | 'Luna' | 'Steam' | 'Outros';
+
+export type OrganizeSourceKind = 'heroic' | 'steam' | 'local';
+
+export interface OrganizeGame {
+  id: string;
+  title: string;
+  platform: Extract<GamePlatform, 'steam' | 'epic' | 'gog' | 'amazon' | 'local'>;
+  folder: OrganizeFolder;
+  currentPath: string;
+  suggestedPath: string;
+  sizeBytes: number | null;
+  alreadyStandard: boolean;
+  source: OrganizeSourceKind;
+  externalId: string;
+  canMove?: boolean;
+  hint?: string;
+}
+
+export interface OrganizeRootStatus {
+  gamesRoot: string;
+  configured: boolean;
+  dirsReady: boolean;
+}
+
+export interface OrganizeDiscoverResult {
+  gamesRoot: string;
+  items: OrganizeGame[];
+}
+
+export type OrganizeTransferEvent =
+  | { type: 'start'; total: number }
+  | {
+      type: 'item';
+      index: number;
+      total: number;
+      id: string;
+      title: string;
+      stage: 'move' | 'patch' | 'done' | 'error';
+      message?: string;
+    }
+  | { type: 'done'; moved: number; failed: number };
+
+export interface OrganizeTransferResult {
+  moved: number;
+  failed: number;
+  errors: Array<{ id: string; title: string; error: string }>;
+}
+
 export type RatingSource = 'rawg' | 'metacritic' | 'steam';
 
 export interface GameRating {
@@ -340,6 +389,8 @@ export interface WishlistEntry {
   title: string;
   itadId: string | null;
   slug: string | null;
+  steamAppId: string | null;
+  coverUrl: string | null;
   preferredStores: string[];
   targetPrice: number | null;
   currency: string;
@@ -361,6 +412,8 @@ export interface WishlistAddInput {
   title: string;
   itadId?: string | null;
   slug?: string | null;
+  steamAppId?: string | null;
+  coverUrl?: string | null;
   targetPrice?: number | null;
   preferredStores?: string[];
   alertEnabled?: boolean;
@@ -469,6 +522,17 @@ export interface DesktopApi {
   libraryLocalSetupGet(): Promise<LocalGamesSetupStatus>;
   libraryPickGamesRoot(): Promise<LocalGamesSetupStatus | null>;
   libraryScanLocalGames(): Promise<LocalGamesScanResult>;
+  organizeGetRoot(): Promise<OrganizeRootStatus>;
+  organizeSetRoot(folder: string): Promise<OrganizeRootStatus>;
+  organizeEnsureDirs(): Promise<OrganizeRootStatus>;
+  organizePickRoot(): Promise<OrganizeRootStatus | null>;
+  organizeDiscover(opts?: {
+    includeSteam?: boolean;
+    extraFolders?: string[];
+  }): Promise<OrganizeDiscoverResult>;
+  organizePickScanFolder(): Promise<string | null>;
+  organizeTransfer(ids: string[]): Promise<OrganizeTransferResult>;
+  onOrganizeTransferProgress(cb: (event: OrganizeTransferEvent) => void): () => void;
   pickExe(): Promise<string | null>;
   pickCover(): Promise<string | null>;
   coverFromUrl(url: string): Promise<string>;

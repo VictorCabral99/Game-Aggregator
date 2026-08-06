@@ -4,6 +4,7 @@
 // - upsertPrice + price mais recente mapeado no entry
 // - dedupe por itad_id (has)
 // Uso: node tools/scripts/wishlist-smoke.ts
+/// <reference path="../../apps/desktop/node_modules/@types/node/sqlite.d.ts" />
 import { DatabaseSync } from 'node:sqlite';
 import { applyMigrations } from '../../apps/desktop/src/main/db/migrations.ts';
 import { WishlistRepository } from '../../apps/desktop/src/main/db/wishlist.ts';
@@ -28,8 +29,17 @@ const tableCount = (
 assert(tableCount === 2, 'migration v7 cria wishlist_entries + price_snapshots');
 
 // CRUD
-const a = repo.add({ title: 'Hollow Knight', itadId: 'hk-id', slug: 'hollow-knight', alertEnabled: true });
+const a = repo.add({
+  title: 'Hollow Knight',
+  itadId: 'hk-id',
+  slug: 'hollow-knight',
+  steamAppId: '367520',
+  coverUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/367520/library_600x900.jpg',
+  alertEnabled: true,
+});
 assert(a.itadId === 'hk-id', 'add guarda itadId');
+assert(a.steamAppId === '367520', 'add guarda steamAppId');
+assert(Boolean(a.coverUrl), 'add guarda coverUrl');
 assert(a.alertEnabled === true, 'alertEnabled default true');
 assert(a.preferredStores.length === 0, 'preferredStores vazio por default');
 
@@ -67,7 +77,7 @@ const withPrice = list.find((e) => e.id === a.id)!;
 assert(withPrice.price?.currentPrice === 24.9, 'price mapeado no entry');
 assert(withPrice.price?.cutPercent === 50, 'cut mapeado');
 assert(withPrice.price?.historicalLow === 9.9, 'historical low mapeado');
-assert(withPrice.price?.url?.includes('isthereanydeal'), 'url da oferta mapeada');
+assert(Boolean(withPrice.price?.url?.includes('isthereanydeal')), 'url da oferta mapeada');
 
 // Snapshot mais recente vence (nova upsert sobrescreve o mais recente)
 repo.upsertPrice({

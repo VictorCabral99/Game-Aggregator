@@ -42,7 +42,9 @@ export class GogProvider extends SidecarProvider {
   }
 
   /** Download/install via gogdl (abre o processo; progresso no terminal do sidecar). */
-  installApp(appName: string) {
-    return this.launch(['download', appName, '--platform', 'windows', '--skip-dlcs']);
+  installApp(appName: string, installPath?: string) {
+    const args = ['download', appName, '--platform', 'windows', '--skip-dlcs'];
+    if (installPath) args.push('--path', installPath);
+    return this.launch(args);
   }
 }

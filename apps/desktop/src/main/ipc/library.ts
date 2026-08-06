@@ -155,7 +155,10 @@ function installSource(sourceId: string) {
   if (!source.externalId) {
     return Promise.resolve({ ok: false, error: 'Jogo sem id externo' });
   }
-  return installPlatformGame(source.platform, source.externalId, { rawJson: source.rawJson });
+  return installPlatformGame(source.platform, source.externalId, {
+    rawJson: source.rawJson,
+    title: source.title,
+  });
 }
 
 function launchSource(sourceId: string) {

@@ -125,33 +125,57 @@ export async function launchPlatformGame(
 /**
  * Abre o fluxo de instalação no cliente oficial da loja (não baixa o jogo aqui).
  * Steam: steam://install · Epic: installer · GOG: Galaxy · Amazon: cliente / Nile.
+ * Com sidecar: instala preferencialmente sob local.gamesRoot (C:\Games\{Loja}).
  */
 export async function installPlatformGame(
   platform: GamePlatform,
   externalId: string,
-  opts?: { rawJson?: string | null }
+  opts?: { rawJson?: string | null; title?: string }
 ): Promise<LaunchResult> {
+  const { ensureOrganizeDirs, getGamesRoot, platformDir, suggestedInstallPath } = await import(
+    '../organize'
+  );
+  try {
+    await ensureOrganizeDirs();
+  } catch {
+    // pasta padrão é best-effort
+  }
+  const root = getGamesRoot();
+
   switch (platform) {
-    case 'steam':
+    case 'steam': {
+      const steam = getSteamProvider();
+      const steamRoot = steam.detectPath();
+      if (steamRoot) {
+        try {
+          const { ensureSteamLibraryFolder } = await import('../organize');
+          ensureSteamLibraryFolder(steamRoot, platformDir(root, 'steam'));
+        } catch {
+          // ignore
+        }
+      }
       return openStoreProtocol(steamInstallUri(externalId));
+    }
     case 'epic': {
       if (getEpicProvider().isAvailable()) {
         const meta = parseEpicMeta(opts?.rawJson);
         const appName = meta.appId || externalId;
-        return getEpicProvider().installApp(appName);
+        return getEpicProvider().installApp(appName, platformDir(root, 'epic'));
       }
       return openStoreProtocol(epicAppUri(externalId, 'installer', parseEpicMeta(opts?.rawJson)));
     }
     case 'gog': {
       if (getGogProvider().isAvailable()) {
-        return getGogProvider().installApp(externalId);
+        const dest = suggestedInstallPath(root, 'gog', opts?.title || externalId);
+        return getGogProvider().installApp(externalId, dest);
       }
       // Galaxy abre a página do jogo — o usuário confirma a instalação lá.
       return openStoreProtocol(gogOpenUri(externalId));
     }
     case 'amazon': {
       if (getAmazonProvider().isAvailable()) {
-        return getAmazonProvider().installApp(externalId);
+        const dest = suggestedInstallPath(root, 'amazon', opts?.title || externalId);
+        return getAmazonProvider().installApp(externalId, dest);
       }
       const exe = findAmazonGamesExe();
       if (exe) return spawnDetached(exe);

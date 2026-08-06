@@ -1,4 +1,4 @@
-import { titleMatchScore } from '@gagg/providers-meta';
+import { normalizeGameTitle } from '@gagg/providers-meta';
 import { DEFAULT_CONSOLES } from '../emulation/catalog';
 
 const COMMON_REGIONS = [
@@ -15,6 +15,9 @@ const COMMON_REGIONS = [
 ];
 
 const BOXART_MATCH_THRESHOLD = 450;
+
+/** Marcadores de sequência (evita DKC2 casar capa do DKC1). */
+const SEQUEL_TOKEN_RE = /^(?:\d{1,2}|ii|iii|iv|v|vi|vii|viii|ix|x)$/i;
 
 /** Remove tags de dump `[!]` / `[b]` mas mantém região `(USA)`. */
 export function romBasenameForCover(filePathOrTitle: string): string {
@@ -35,13 +38,70 @@ export function stripDiscTags(title: string): string {
     .trim();
 }
 
+/** Remove anos tipo `(1994)` — comuns em títulos enriquecidos, quebram match exato. */
+export function stripYearTags(title: string): string {
+  return title
+    .replace(/\s*\((?:19|20)\d{2}(?:\s*[-–]\s*(?:19|20)\d{2})?\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Título “nu” para comparar: sem região/rev/meta entre parênteses e sem ano. */
+export function stripBoxartMeta(title: string): string {
+  return stripYearTags(title)
+    .replace(/\s*\([^)]*\)\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function hasRegionTag(title: string): boolean {
   return /\(\s*(USA|Europe|Japan|World|En\b|Fr\b|De\b|Es\b|It\b|UE|JP|US)/i.test(title);
 }
 
+function sequelMarkers(normalized: string): string[] {
+  return normalized.split(' ').filter((t) => SEQUEL_TOKEN_RE.test(t));
+}
+
+/**
+ * Score específico para Named_Boxarts: distingue sequências e ignora anos.
+ * Não reusa titleMatchScore (prefixo 800 fazia DKC2/3 virarem DKC1).
+ */
+export function boxartMatchScore(query: string, candidate: string): number {
+  const qBare = normalizeGameTitle(stripBoxartMeta(query));
+  const cBare = normalizeGameTitle(stripBoxartMeta(candidate));
+  if (!qBare || !cBare) return 0;
+
+  const qMarks = sequelMarkers(qBare);
+  const cMarks = sequelMarkers(cBare);
+  if (qMarks.join('\0') !== cMarks.join('\0')) return 0;
+
+  if (qBare === cBare) return 1000;
+
+  if (cBare.startsWith(qBare) || qBare.startsWith(cBare)) {
+    const longer = qBare.length >= cBare.length ? qBare : cBare;
+    const shorter = qBare.length < cBare.length ? qBare : cBare;
+    const rest = longer.slice(shorter.length).trim();
+    // Prefixo só conta se o resto não começa com token “forte” (número/sequel já filtrado;
+    // ainda evita "Metroid" → "Metroid Fusion" empatar como se fosse o mesmo jogo forte).
+    if (rest && !rest.startsWith('-')) {
+      // "donkey kong country 2 diddy..." vs "donkey kong country 2" → rest = "diddy..." → 750
+      return 750;
+    }
+    return 800;
+  }
+
+  if (cBare.includes(qBare) || qBare.includes(cBare)) return 600;
+
+  const qTokens = qBare.split(' ').filter(Boolean);
+  const cTokens = new Set(cBare.split(' ').filter(Boolean));
+  const overlap = qTokens.filter((t) => cTokens.has(t)).length;
+  if (overlap === 0) return 0;
+  return 100 + overlap * 50 + (overlap === qTokens.length ? 100 : 0);
+}
+
 /** Variantes de título para Named_Boxarts (No-Intro). */
 export function libretroTitleVariants(title: string): string[] {
-  const clean = stripDiscTags(romBasenameForCover(title));
+  const clean = stripYearTags(stripDiscTags(romBasenameForCover(title)));
   if (!clean) return [];
 
   const cores = [
@@ -103,26 +163,38 @@ export function pickBestBoxartName(queries: string[], indexedNames: string[]): {
   score: number;
   query: string;
 } | null {
-  const qList = [...new Set(queries.map((q) => stripDiscTags(romBasenameForCover(q))).filter(Boolean))];
+  const qList = [
+    ...new Set(
+      queries
+        .map((q) => stripYearTags(stripDiscTags(romBasenameForCover(q))))
+        .filter(Boolean)
+    ),
+  ];
   if (qList.length === 0 || indexedNames.length === 0) return null;
 
-  let best: { name: string; score: number; query: string } | null = null;
+  let best: { name: string; score: number; query: string; specificity: number } | null = null;
 
   for (const query of qList) {
+    const qNorm = normalizeGameTitle(stripBoxartMeta(query));
     for (const name of indexedNames) {
-      // Pontua contra o nome completo e sem região
-      const bare = name.replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
-      const score = Math.max(titleMatchScore(query, name), titleMatchScore(query, bare));
-      if (!best || score > best.score) {
-        best = { name, score, query };
+      const score = boxartMatchScore(query, name);
+      // Empate: prefere boxart cujo título nu é mais próximo do query (evita 1º do índice ganhar)
+      const cNorm = normalizeGameTitle(stripBoxartMeta(name));
+      const specificity = qNorm && cNorm ? -Math.abs(cNorm.length - qNorm.length) : -999;
+      if (
+        !best ||
+        score > best.score ||
+        (score === best.score && specificity > best.specificity)
+      ) {
+        best = { name, score, query, specificity };
       }
     }
-    // Atalho: match exato / prefixo forte
-    if (best && best.score >= 800) break;
+    // Atalho: match exato
+    if (best && best.score >= 1000) break;
   }
 
   if (!best || best.score < BOXART_MATCH_THRESHOLD) return null;
-  return best;
+  return { name: best.name, score: best.score, query: best.query };
 }
 
 /** Candidatos de capa no CDN (guess URLs — fallback se índice falhar). */

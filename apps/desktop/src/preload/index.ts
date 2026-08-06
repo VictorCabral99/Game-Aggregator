@@ -40,6 +40,20 @@ const api: DesktopApi = {
   libraryLocalSetupGet: () => ipcRenderer.invoke('library:local-setup-get'),
   libraryPickGamesRoot: () => ipcRenderer.invoke('library:pick-games-root'),
   libraryScanLocalGames: () => ipcRenderer.invoke('library:scan-local-games'),
+  organizeGetRoot: () => ipcRenderer.invoke('organize:get-root'),
+  organizeSetRoot: (folder: string) => ipcRenderer.invoke('organize:set-root', folder),
+  organizeEnsureDirs: () => ipcRenderer.invoke('organize:ensure-dirs'),
+  organizePickRoot: () => ipcRenderer.invoke('organize:pick-root'),
+  organizeDiscover: (opts?: { includeSteam?: boolean; extraFolders?: string[] }) =>
+    ipcRenderer.invoke('organize:discover', opts),
+  organizePickScanFolder: () => ipcRenderer.invoke('organize:pick-scan-folder'),
+  organizeTransfer: (ids: string[]) => ipcRenderer.invoke('organize:transfer', ids),
+  onOrganizeTransferProgress: (cb) => {
+    const listener = (_e: Electron.IpcRendererEvent, data: import('../shared/api').OrganizeTransferEvent) =>
+      cb(data);
+    ipcRenderer.on('organize:transfer-progress', listener);
+    return () => ipcRenderer.removeListener('organize:transfer-progress', listener);
+  },
   pickExe: () => ipcRenderer.invoke('pick-exe'),
   pickCover: () => ipcRenderer.invoke('pick-cover'),
   coverFromUrl: (url: string) => ipcRenderer.invoke('cover-from-url', url),

@@ -7,6 +7,8 @@ interface WishlistRow {
   title: string;
   itad_id: string | null;
   slug: string | null;
+  steam_app_id: string | null;
+  cover_url: string | null;
   preferred_stores: string | null;
   target_price: number | null;
   currency: string;
@@ -57,6 +59,8 @@ function mapEntry(row: WishlistRow, price: PriceRow | null): WishlistEntry {
     title: row.title,
     itadId: row.itad_id,
     slug: row.slug,
+    steamAppId: row.steam_app_id ?? null,
+    coverUrl: row.cover_url ?? null,
     preferredStores: row.preferred_stores ? (JSON.parse(row.preferred_stores) as string[]) : [],
     targetPrice: row.target_price,
     currency: row.currency,
@@ -77,13 +81,13 @@ export class WishlistRepository {
 
   private latestPriceFor(wishlistId: string): PriceRow | null {
     return (
-      this.db
+      (this.db
         .prepare(
           `SELECT * FROM price_snapshots WHERE wishlist_id = ?
            ORDER BY fetched_at DESC, rowid DESC LIMIT 1`
         )
-        .get(wishlistId) as PriceRow | undefined
-    ) ?? null;
+        .get(wishlistId) as PriceRow | undefined) ?? null
+    );
   }
 
   list(): WishlistEntry[] {
@@ -100,14 +104,36 @@ export class WishlistRepository {
     return row ? mapEntry(row, this.latestPriceFor(row.id)) : null;
   }
 
+  findByItadId(itadId: string): WishlistEntry | null {
+    const row = this.db
+      .prepare(`SELECT * FROM wishlist_entries WHERE itad_id = ?`)
+      .get(itadId) as WishlistRow | undefined;
+    return row ? mapEntry(row, this.latestPriceFor(row.id)) : null;
+  }
+
+  findBySteamAppId(steamAppId: string): WishlistEntry | null {
+    const row = this.db
+      .prepare(`SELECT * FROM wishlist_entries WHERE steam_app_id = ?`)
+      .get(steamAppId) as WishlistRow | undefined;
+    return row ? mapEntry(row, this.latestPriceFor(row.id)) : null;
+  }
+
+  findByTitle(title: string): WishlistEntry | null {
+    const row = this.db
+      .prepare(`SELECT * FROM wishlist_entries WHERE lower(trim(title)) = lower(trim(?)) LIMIT 1`)
+      .get(title) as WishlistRow | undefined;
+    return row ? mapEntry(row, this.latestPriceFor(row.id)) : null;
+  }
+
   add(input: WishlistAddInput): WishlistEntry {
     const id = `w-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
     this.db
       .prepare(
         `INSERT INTO wishlist_entries
-           (id, game_id, title, itad_id, slug, preferred_stores, target_price, currency, alert_enabled, note, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+           (id, game_id, title, itad_id, slug, steam_app_id, cover_url, preferred_stores,
+            target_price, currency, alert_enabled, note, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -115,6 +141,8 @@ export class WishlistRepository {
         input.title.trim(),
         input.itadId ?? null,
         input.slug ?? null,
+        input.steamAppId ?? null,
+        input.coverUrl ?? null,
         input.preferredStores?.length ? JSON.stringify(input.preferredStores) : null,
         input.targetPrice ?? null,
         'BRL',
@@ -131,20 +159,24 @@ export class WishlistRepository {
     if (!current) throw new Error('Wishlist entry não encontrada');
 
     const title = patch.title?.trim() || current.title;
-    const itadId = patch.itadId !== undefined ? patch.itadId ?? null : current.itadId;
-    const slug = patch.slug !== undefined ? patch.slug ?? null : current.slug;
+    const itadId = patch.itadId !== undefined ? (patch.itadId ?? null) : current.itadId;
+    const slug = patch.slug !== undefined ? (patch.slug ?? null) : current.slug;
+    const steamAppId =
+      patch.steamAppId !== undefined ? (patch.steamAppId ?? null) : current.steamAppId;
+    const coverUrl = patch.coverUrl !== undefined ? (patch.coverUrl ?? null) : current.coverUrl;
     const preferredStores =
       patch.preferredStores !== undefined ? patch.preferredStores : current.preferredStores;
-    const targetPrice = patch.targetPrice !== undefined ? patch.targetPrice ?? null : current.targetPrice;
+    const targetPrice =
+      patch.targetPrice !== undefined ? (patch.targetPrice ?? null) : current.targetPrice;
     const alertEnabled =
       patch.alertEnabled !== undefined ? patch.alertEnabled : current.alertEnabled;
-    const gameId = patch.gameId !== undefined ? patch.gameId ?? null : current.gameId;
+    const gameId = patch.gameId !== undefined ? (patch.gameId ?? null) : current.gameId;
 
     this.db
       .prepare(
         `UPDATE wishlist_entries SET
-           game_id = ?, title = ?, itad_id = ?, slug = ?, preferred_stores = ?,
-           target_price = ?, alert_enabled = ?, updated_at = datetime('now')
+           game_id = ?, title = ?, itad_id = ?, slug = ?, steam_app_id = ?, cover_url = ?,
+           preferred_stores = ?, target_price = ?, alert_enabled = ?, updated_at = datetime('now')
          WHERE id = ?`
       )
       .run(
@@ -152,6 +184,8 @@ export class WishlistRepository {
         title,
         itadId,
         slug,
+        steamAppId,
+        coverUrl,
         preferredStores.length ? JSON.stringify(preferredStores) : null,
         targetPrice,
         alertEnabled ? 1 : 0,
@@ -221,9 +255,6 @@ export class WishlistRepository {
   }
 
   has(itadId: string): boolean {
-    const row = this.db
-      .prepare(`SELECT 1 AS x FROM wishlist_entries WHERE itad_id = ?`)
-      .get(itadId) as { x: number } | undefined;
-    return Boolean(row);
+    return Boolean(this.findByItadId(itadId));
   }
 }

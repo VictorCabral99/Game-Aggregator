@@ -28,6 +28,8 @@ function entry(title: string, p: Partial<PriceSnapshot> | null): WishlistEntry {
     title,
     itadId: null,
     slug: null,
+    steamAppId: null,
+    coverUrl: null,
     preferredStores: [],
     targetPrice: null,
     currency: 'BRL',

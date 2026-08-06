@@ -342,7 +342,7 @@ export class LibraryRepository {
           this.db
             .prepare(
               `UPDATE canonical_games SET cover_url = COALESCE(cover_url, ?), updated_at = ?
-               WHERE id = ? AND cover_path IS NULL`
+               WHERE id = ? AND cover_path IS NULL AND cover_url IS NULL`
             )
             .run(item.coverUrl, now, existing.game_id);
         }

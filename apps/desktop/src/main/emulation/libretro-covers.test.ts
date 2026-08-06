@@ -5,7 +5,17 @@ import {
   pickBestBoxartName,
   romBasenameForCover,
   stripDiscTags,
+  stripYearTags,
 } from './libretro-covers';
+
+describe('stripYearTags', () => {
+  it('remove ano entre parênteses', () => {
+    expect(stripYearTags('Donkey Kong Country (1994)')).toBe('Donkey Kong Country');
+    expect(stripYearTags("Donkey Kong Country 2: Diddy's Kong Quest (1995)")).toBe(
+      "Donkey Kong Country 2: Diddy's Kong Quest"
+    );
+  });
+});
 
 describe('romBasenameForCover', () => {
   it('mantém região No-Intro e remove tags de dump', () => {
@@ -51,6 +61,16 @@ describe('pickBestBoxartName', () => {
     'Final Fantasy VII (USA)',
   ];
 
+  const dkcIndex = [
+    'Donkey Kong Country (Europe) (En,Fr,De)',
+    'Donkey Kong Country (USA)',
+    "Donkey Kong Country 2 - Diddy's Kong Quest (USA) (En,Fr)",
+    "Donkey Kong Country 2 - Diddy's Kong Quest (Europe) (En,Fr)",
+    "Donkey Kong Country 3 - Dixie Kong's Double Trouble! (USA) (En,Fr)",
+    "Donkey Kong Country 3 - Dixie Kong's Double Trouble! (Europe) (En,Fr,De)",
+    'Donkey Kong Country - Competition Cartridge (USA)',
+  ];
+
   it('casa título limpo com boxart regional', () => {
     const best = pickBestBoxartName(['Metroid'], index);
     expect(best?.name).toMatch(/Metroid/);
@@ -69,6 +89,33 @@ describe('pickBestBoxartName', () => {
 
   it('retorna null se nada passa o threshold', () => {
     expect(pickBestBoxartName(['Completely Unrelated Zzz'], index)).toBeNull();
+  });
+
+  it('não confunde sequências Donkey Kong Country (com ano no título)', () => {
+    expect(pickBestBoxartName(['Donkey Kong Country (1994)'], dkcIndex)?.name).toMatch(
+      /^Donkey Kong Country \(/
+    );
+    expect(pickBestBoxartName(["Donkey Kong Country 2: Diddy's Kong Quest (1995)"], dkcIndex)?.name).toMatch(
+      /^Donkey Kong Country 2/
+    );
+    expect(
+      pickBestBoxartName(["Donkey Kong Country 3: Dixie Kong's Double Trouble! (1996)"], dkcIndex)?.name
+    ).toMatch(/^Donkey Kong Country 3/);
+  });
+
+  it('não confunde sequências com título curto (só o número)', () => {
+    expect(pickBestBoxartName(['Donkey Kong Country 2'], dkcIndex)?.name).toMatch(
+      /^Donkey Kong Country 2/
+    );
+    expect(pickBestBoxartName(['Donkey Kong Country 3'], dkcIndex)?.name).toMatch(
+      /^Donkey Kong Country 3/
+    );
+  });
+
+  it('Donkey Kong Country 1 não pega capa do 2 nem Competition', () => {
+    const best = pickBestBoxartName(['Donkey Kong Country'], dkcIndex);
+    expect(best?.name).toMatch(/^Donkey Kong Country \(/);
+    expect(best?.name).not.toMatch(/Country 2|Competition/);
   });
 });
 

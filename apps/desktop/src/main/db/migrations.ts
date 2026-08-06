@@ -268,6 +268,13 @@ export const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ALTER TABLE canonical_games ADD COLUMN is_remote INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 10,
+    sql: `
+      ALTER TABLE wishlist_entries ADD COLUMN steam_app_id TEXT;
+      ALTER TABLE wishlist_entries ADD COLUMN cover_url TEXT;
+    `,
+  },
 ];
 
 export function applyMigrations(db: DatabaseSync): void {
