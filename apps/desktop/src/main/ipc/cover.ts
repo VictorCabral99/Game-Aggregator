@@ -3,10 +3,14 @@ import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getLibraryRepository, getSetting } from '../db';
+import { getCacheRow, getLibraryRepository, getSetting, upsertCache } from '../db';
 import type { Game } from '../db/games';
 import {
+  libretroBoxartUrl,
   libretroCoverCandidates,
+  libretroSystemsForConsole,
+  libretroTitleVariants,
+  pickBestBoxartName,
   romBasenameForCover,
 } from '../emulation/libretro-covers';
 
@@ -19,6 +23,10 @@ async function ensureCoversDir(): Promise<void> {
 }
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
+const BOXART_INDEX_TTL_MS = 30 * 24 * 3600 * 1000;
+
+/** Cache em memória por sessão (evita reparse HTML a cada jogo). */
+const boxartIndexMemory = new Map<string, string[]>();
 
 function resolvedSteamAppId(game: Game): string | null {
   const fromSource = game.sources.find((s) => s.platform === 'steam' && s.externalId)?.externalId;
@@ -26,32 +34,107 @@ function resolvedSteamAppId(game: Game): string | null {
   return getSetting(`steam.appid.${game.id}`)?.trim() || null;
 }
 
-/** Candidatos de URL de capa: coverUrl da loja, Steam CDN, ou Libretro boxarts (retro). */
-function coverCandidates(game: Game): string[] {
+function logCover(msg: string): void {
+  console.log(msg.startsWith('[cover]') ? msg : `[cover] ${msg}`);
+}
+
+/** Lista nomes (sem .png) do índice Named_Boxarts do Libretro. */
+export async function fetchLibretroBoxartIndex(system: string): Promise<string[]> {
+  const mem = boxartIndexMemory.get(system);
+  if (mem) return mem;
+
+  const cacheKey = `libretro:boxarts:${system}`;
+  const row = getCacheRow(cacheKey);
+  if (row && Date.now() - new Date(row.fetched_at).getTime() < BOXART_INDEX_TTL_MS) {
+    try {
+      const names = JSON.parse(row.body) as string[];
+      if (Array.isArray(names) && names.length > 0) {
+        boxartIndexMemory.set(system, names);
+        return names;
+      }
+    } catch {
+      // refetch
+    }
+  }
+
+  const url = `https://thumbnails.libretro.com/${encodeURIComponent(system)}/Named_Boxarts/`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`índice boxart HTTP ${res.status}`);
+  const html = await res.text();
+  const names: string[] = [];
+  for (const m of html.matchAll(/href="([^"?#]+\.png)"/gi)) {
+    let raw = m[1];
+    try {
+      raw = decodeURIComponent(raw);
+    } catch {
+      // keep raw
+    }
+    if (raw.includes('/') || raw === '..') continue;
+    names.push(raw.replace(/\.png$/i, ''));
+  }
+  const unique = [...new Set(names)];
+  upsertCache(cacheKey, JSON.stringify(unique));
+  boxartIndexMemory.set(system, unique);
+  logCover(`índice · ${system} · ${unique.length} boxarts`);
+  return unique;
+}
+
+/** URLs priorizadas via fuzzy match no índice + fallback de guess. */
+async function coverCandidatesForRetro(game: Game): Promise<string[]> {
+  const urls: string[] = [];
+  const queries: string[] = [game.title];
+
+  for (const s of game.sources) {
+    if (s.platform !== 'emulator' || !s.consoleId) continue;
+    if (s.installPath) {
+      const fromRom = romBasenameForCover(s.installPath);
+      if (fromRom) queries.push(fromRom);
+    }
+
+    const systems = libretroSystemsForConsole(s.consoleId);
+    for (const system of systems) {
+      try {
+        const index = await fetchLibretroBoxartIndex(system);
+        const best = pickBestBoxartName(queries, index);
+        if (best) {
+          urls.push(libretroBoxartUrl(system, best.name));
+          logCover(
+            `${game.title} · match · score=${best.score} · q="${best.query}" · → ${best.name}`
+          );
+        } else {
+          logCover(`${game.title} · sem match no índice · ${system} (${index.length})`);
+        }
+      } catch (err) {
+        logCover(
+          `${game.title} · índice falhou · ${system} · ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+    }
+
+    // Fallback: guesses URL (região / variantes)
+    urls.push(...libretroCoverCandidates(game.title, s.consoleId, queries));
+  }
+
+  return [...new Set(urls)];
+}
+
+function coverCandidatesStore(game: Game): string[] {
   const urls: string[] = [];
   if (game.coverUrl) urls.push(game.coverUrl);
   const appid = resolvedSteamAppId(game);
   if (appid) {
     urls.push(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`);
   }
-  for (const s of game.sources) {
-    if (s.platform === 'emulator' && s.consoleId) {
-      // Título limpo na lib + nome do arquivo ROM (com região No-Intro)
-      const fromRom = s.installPath ? romBasenameForCover(s.installPath) : '';
-      const extras = fromRom && fromRom !== game.title ? [fromRom] : [];
-      urls.push(...libretroCoverCandidates(game.title, s.consoleId, extras));
-    }
-  }
-  return [...new Set(urls)];
-}
-
-function logCover(msg: string): void {
-  console.log(msg.startsWith('[cover]') ? msg : `[cover] ${msg}`);
+  return urls;
 }
 
 /** Baixa a capa de um jogo para o cache em disco e atualiza cover_path (P3-10/11). */
 export async function downloadCoverForGame(game: Game): Promise<boolean> {
-  const candidates = coverCandidates(game);
+  const isRetro = game.sources.some((s) => s.platform === 'emulator');
+  const candidates = isRetro
+    ? [...coverCandidatesStore(game), ...(await coverCandidatesForRetro(game))]
+    : coverCandidatesStore(game);
+
   if (candidates.length === 0) {
     logCover(`${game.title} · sem candidatos (console/title?)`);
     return false;
@@ -123,7 +206,6 @@ export function registerCoverHandlers(): void {
     return downloadToCache(url);
   });
 
-  // Baixa capas faltantes só de ROMs (lojas usam coverUrl do sync).
   ipcMain.handle('covers:download-missing', async (): Promise<{ downloaded: number; failed: number }> => {
     return downloadMissingRetroCovers();
   });
@@ -133,7 +215,6 @@ async function downloadToCache(url: string): Promise<string> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Falha ao baixar capa (HTTP ${res.status})`);
   const buffer = Buffer.from(await res.arrayBuffer());
-  // Libretro às vezes devolve HTML 200 com página de erro — rejeita
   const ctype = (res.headers.get('content-type') ?? '').toLowerCase();
   if (ctype.includes('text/html')) {
     throw new Error('Falha ao baixar capa (HTML em vez de imagem)');
@@ -169,3 +250,6 @@ async function saveBuffer(buffer: Buffer, ext: string): Promise<string> {
   });
   return target;
 }
+
+// re-export for tests / callers
+export { libretroTitleVariants };
