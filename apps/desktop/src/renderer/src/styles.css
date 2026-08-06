@@ -376,10 +376,32 @@ body {
   line-height: 1.45;
 }
 
-.card__badge {
+.card__chrome {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  inset: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px;
+}
+
+.card__badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  max-width: 70%;
+}
+
+.card__badge {
+  position: static;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -388,13 +410,10 @@ body {
   background: rgba(15, 17, 21, 0.82);
   border: 1px solid var(--border);
   color: #cbd5e1;
+  backdrop-filter: blur(2px);
 }
 
 .card__badge--remote {
-  top: auto;
-  bottom: 8px;
-  left: 8px;
-  right: auto;
   background: #0369a1;
   border-color: #0ea5e9;
   color: #e0f2fe;
@@ -434,6 +453,63 @@ body.gamepad-active .recent {
   left: 0;
   right: 0;
   display: grid;
+}
+
+.grid-virtual__header-wrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+.rating-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 92%, #fff 4%);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+
+.rating-group-header:hover {
+  border-color: color-mix(in srgb, var(--accent, #5b8def) 45%, var(--border));
+}
+
+.rating-group-header--open {
+  border-color: color-mix(in srgb, var(--accent, #5b8def) 35%, var(--border));
+}
+
+.rating-group-header__chevron {
+  font-size: 0.7rem;
+  color: var(--muted);
+  width: 1rem;
+  flex-shrink: 0;
+}
+
+.rating-group-header__label {
+  font-weight: 650;
+  font-size: 0.9rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.rating-group-header__count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
 }
 
 .boot-ready {
@@ -529,8 +605,16 @@ body.gamepad-active .recent {
   color: var(--muted);
 }
 
+.card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px 10px;
+  min-width: 0;
+}
+
 .card__title {
-  padding: 0 10px;
+  padding: 0;
   font-weight: 600;
   line-height: 1.25;
   overflow: hidden;
@@ -540,7 +624,7 @@ body.gamepad-active .recent {
 }
 
 .card__meta {
-  padding: 0 10px 10px;
+  padding: 0;
   font-size: 0.75rem;
   color: var(--muted);
 }
@@ -1319,17 +1403,17 @@ body.gamepad-active .card:focus-visible,
 
 /* Fase 6 — notas */
 .card__score {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  min-width: 30px;
-  padding: 3px 6px;
+  position: static;
+  flex-shrink: 0;
+  min-width: 2.1rem;
+  padding: 3px 7px;
   border-radius: 8px;
-  background: rgba(10, 13, 18, 0.85);
+  background: rgba(10, 13, 18, 0.88);
   border: 1px solid rgba(255, 255, 255, 0.15);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 700;
   text-align: center;
+  line-height: 1.2;
   backdrop-filter: blur(2px);
 }
 
@@ -1342,7 +1426,7 @@ body.gamepad-active .card:focus-visible,
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  padding: 0 2px 2px;
+  padding: 0;
 }
 
 .card__rating {
@@ -1433,6 +1517,36 @@ body.gamepad-active .card:focus-visible,
   margin-left: auto;
   padding: 3px 10px;
   font-size: 0.75rem;
+}
+
+.ratings__steamdb {
+  padding: 3px 10px;
+  font-size: 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--accent, #5b8def) 55%, transparent);
+  background: transparent;
+  color: var(--accent, #5b8def);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ratings__steamdb:hover {
+  background: color-mix(in srgb, var(--accent, #5b8def) 18%, transparent);
+}
+
+button.linkish {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent, #5b8def);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+button.linkish:hover {
+  opacity: 0.85;
 }
 
 .ratings__empty {

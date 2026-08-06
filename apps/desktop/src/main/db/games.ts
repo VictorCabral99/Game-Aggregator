@@ -36,6 +36,8 @@ export interface Game {
   genres: string[];
   launchArgs: string | null;
   isRemote: boolean;
+  /** Steam AppID (fonte Steam ou lookup). Preenchido no IPC list. */
+  steamAppId: string | null;
   createdAt: string;
   updatedAt: string;
   /** Última fonte jogada; senão primeira instalada. Define launch padrão. */
@@ -175,6 +177,7 @@ export class LibraryRepository {
       updatedAt: row.updated_at,
       preferredSource: pickPreferred(sources),
       sources,
+      steamAppId: null,
     };
   }
 

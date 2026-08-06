@@ -10,11 +10,12 @@ import {
   scanLocalGamesFolder,
   setLocalGamesRoot,
 } from '../local-games';
+import { withSteamAppId, withSteamAppIds } from '../steam-appid';
 
 export function registerLibraryHandlers(): void {
   const repo = () => getLibraryRepository();
 
-  ipcMain.handle('library:list', () => repo().list());
+  ipcMain.handle('library:list', () => withSteamAppIds(repo().list()));
 
   ipcMain.handle('library:local-setup-get', () => getLocalGamesSetup());
 
@@ -37,7 +38,7 @@ export function registerLibraryHandlers(): void {
     if (!existsSync(input.executable.trim())) {
       throw new Error('Arquivo do executável não encontrado');
     }
-    return repo().add(input);
+    return withSteamAppId(repo().add(input));
   });
 
   ipcMain.handle(
@@ -46,7 +47,7 @@ export function registerLibraryHandlers(): void {
       if (!args?.id) throw new Error('id é obrigatório');
       const game = repo().update(args.id, args.patch ?? {});
       if (!game) throw new Error('Jogo não encontrado');
-      return game;
+      return withSteamAppId(game);
     }
   );
 

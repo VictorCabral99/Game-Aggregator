@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Game, GameSource, LaunchResult, RatingsSummary } from '../../../shared/api';
+import { steamDbInfoUrl } from '../../../shared/api';
 import { coverSrc, PLATFORM_LABELS } from './GameCard';
 
 interface Props {
@@ -161,6 +162,22 @@ export default function GameDetailModal({
               <dd>Marcado como stream / outro PC</dd>
             </div>
           )}
+          {game.steamAppId && (
+            <div>
+              <dt>Steam AppID</dt>
+              <dd>
+                <code>{game.steamAppId}</code>
+                {' · '}
+                <button
+                  type="button"
+                  className="linkish"
+                  onClick={() => void window.api.openExternal(steamDbInfoUrl(game.steamAppId!))}
+                >
+                  Abrir no SteamDB
+                </button>
+              </dd>
+            </div>
+          )}
         </dl>
 
         {!hideScore && (
@@ -179,9 +196,23 @@ export default function GameDetailModal({
                   Atualizar
                 </button>
               )}
+              {game.steamAppId && (
+                <button
+                  type="button"
+                  className="ratings__steamdb"
+                  onClick={() => void window.api.openExternal(steamDbInfoUrl(game.steamAppId!))}
+                  title={`SteamDB · App ${game.steamAppId}`}
+                >
+                  SteamDB
+                </button>
+              )}
             </div>
             {!rating || rating.sources.every((s) => s.score === null) ? (
-              <p className="ratings__empty">Sem avaliação.</p>
+              <p className="ratings__empty">
+                {game.steamAppId
+                  ? 'Sem avaliação.'
+                  : 'Sem avaliação. Use Atualizar para buscar Steam AppID / nota.'}
+              </p>
             ) : (
               <div className="ratings__grid">
                 {rating.sources.map((s) => {

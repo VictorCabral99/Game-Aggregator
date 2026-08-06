@@ -39,6 +39,13 @@ import {
   isInsideGrid,
   moveFocus,
 } from './lib/spatialFocus';
+import {
+  buildGridRows,
+  buildRatingGroups,
+  defaultCollapsedState,
+  flattenOpenGroupGames,
+  type RatingBandId,
+} from './lib/rating-groups';
 
 type View =
   | { kind: 'library' }
@@ -117,10 +124,16 @@ export default function App(): JSX.Element {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [ready, setReady] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
   const enrichRunning = useRef(false);
+  const padStatusRef = useRef<{ connected: boolean; active: boolean; id: string | null }>({
+    connected: false,
+    active: false,
+    id: null,
+  });
 
   const refreshRatings = useCallback(async () => {
     const map = await window.api.ratingsForLibrary();
@@ -282,13 +295,16 @@ export default function App(): JSX.Element {
     }
   };
 
-  const syncRatings = async (force = false, opts?: { quiet?: boolean }) => {
+  const syncRatings = async (
+    force = false,
+    opts?: { quiet?: boolean; gameIds?: string[] }
+  ) => {
     if (enrichRunning.current) return;
     enrichRunning.current = true;
     setSyncingRatings(true);
     setEnrichProgress({ index: 0, total: 0, title: 'Preparando…' });
     try {
-      const batchSize = opts?.quiet && !force ? 48 : undefined;
+      const batchSize = opts?.quiet && !force && !opts?.gameIds?.length ? 48 : undefined;
       let totalUpdated = 0;
       let totalCovers = 0;
       let totalAttempted = 0;
@@ -300,12 +316,13 @@ export default function App(): JSX.Element {
         const res = await window.api.ratingsEnrichStream({
           force: force && batches === 1,
           maxGames: batchSize,
+          gameIds: opts?.gameIds,
         });
         totalUpdated += res.updated;
         totalCovers += res.covers ?? 0;
         totalAttempted += res.attempted;
 
-        if (!batchSize) break;
+        if (!batchSize || opts?.gameIds?.length) break;
         if (res.attempted === 0) break;
         // lote incompleto = não há mais o que processar agora
         if (res.attempted < batchSize) break;
@@ -391,6 +408,7 @@ export default function App(): JSX.Element {
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
     const pendingRatings: Record<string, RatingsSummary | null> = {};
     const pendingCovers = new Map<string, string | null>();
+    const pendingSteamIds = new Map<string, string | null>();
     let latestProgress: { index: number; total: number; title: string } | null = null;
 
     const flush = () => {
@@ -402,11 +420,18 @@ export default function App(): JSX.Element {
         for (const k of ratingKeys) delete pendingRatings[k];
         setRatings((prev) => ({ ...prev, ...batch }));
       }
-      if (pendingCovers.size > 0) {
+      if (pendingCovers.size > 0 || pendingSteamIds.size > 0) {
         const covers = new Map(pendingCovers);
+        const steamIds = new Map(pendingSteamIds);
         pendingCovers.clear();
+        pendingSteamIds.clear();
         setGames((prev) =>
-          prev.map((g) => (covers.has(g.id) ? { ...g, coverPath: covers.get(g.id) ?? null } : g))
+          prev.map((g) => {
+            let next = g;
+            if (covers.has(g.id)) next = { ...next, coverPath: covers.get(g.id) ?? null };
+            if (steamIds.has(g.id)) next = { ...next, steamAppId: steamIds.get(g.id) ?? null };
+            return next;
+          })
         );
       }
     };
@@ -425,6 +450,7 @@ export default function App(): JSX.Element {
         latestProgress = { index: ev.index, total: ev.total, title: ev.title };
         pendingRatings[ev.gameId] = ev.summary;
         if (ev.coverPath) pendingCovers.set(ev.gameId, ev.coverPath);
+        if (ev.steamAppId !== undefined) pendingSteamIds.set(ev.gameId, ev.steamAppId);
         scheduleFlush();
         return;
       }
@@ -456,9 +482,16 @@ export default function App(): JSX.Element {
     return [...set].sort((a, b) => a.localeCompare(b));
   }, [games]);
 
-  const visibleGames = useMemo(() => {
+  const useRatingGroups = sortBy === 'rating' || sortBy === 'steam';
+
+  useEffect(() => {
+    // opção "Steam %" duplicada removida — migra estado antigo
+    if (sortBy === 'steam') setSortBy('rating');
+  }, [sortBy]);
+
+  const filteredGames = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const scored = games.filter((g) => {
+    return games.filter((g) => {
       if (filter !== 'all' && !g.sources.some((s) => s.platform === filter)) return false;
       if (installedOnly && !g.sources.some((s) => s.isInstalled)) return false;
       if (genreFilter !== 'all' && !g.genres.includes(genreFilter)) return false;
@@ -469,10 +502,37 @@ export default function App(): JSX.Element {
       }
       return true;
     });
-    const sorted = [...scored];
-    if (sortBy === 'rating') {
-      sorted.sort((a, b) => (ratings[b.id]?.score ?? 0) - (ratings[a.id]?.score ?? 0));
-    } else if (sortBy === 'rawg') {
+  }, [games, filter, genreFilter, installedOnly, query, minRating, ratings]);
+
+  const ratingGroups = useMemo(() => {
+    if (!useRatingGroups) return null;
+    return buildRatingGroups(filteredGames, ratings);
+  }, [useRatingGroups, filteredGames, ratings]);
+
+  useEffect(() => {
+    setGroupOpen({});
+    setSelected(0);
+  }, [sortBy]);
+
+  useEffect(() => {
+    if (!ratingGroups) return;
+    setGroupOpen((prev) => {
+      const defaults = defaultCollapsedState(ratingGroups);
+      if (Object.keys(prev).length === 0) return defaults;
+      const next = { ...defaults };
+      for (const g of ratingGroups) {
+        if (g.id in prev) next[g.id] = prev[g.id];
+      }
+      return next;
+    });
+  }, [ratingGroups]);
+
+  const visibleGames = useMemo(() => {
+    if (ratingGroups) {
+      return flattenOpenGroupGames(ratingGroups, groupOpen);
+    }
+    const sorted = [...filteredGames];
+    if (sortBy === 'rawg') {
       sorted.sort(
         (a, b) => ratingSourceScore(ratings[b.id], 'rawg') - ratingSourceScore(ratings[a.id], 'rawg')
       );
@@ -482,10 +542,6 @@ export default function App(): JSX.Element {
           ratingSourceScore(ratings[b.id], 'metacritic') -
           ratingSourceScore(ratings[a.id], 'metacritic')
       );
-    } else if (sortBy === 'steam') {
-      sorted.sort(
-        (a, b) => ratingSourceScore(ratings[b.id], 'steam') - ratingSourceScore(ratings[a.id], 'steam')
-      );
     } else if (sortBy === 'recent') {
       sorted.sort((a, b) =>
         (b.preferredSource?.lastPlayedAt ?? '').localeCompare(a.preferredSource?.lastPlayedAt ?? '')
@@ -494,7 +550,16 @@ export default function App(): JSX.Element {
       sorted.sort((a, b) => a.title.localeCompare(b.title));
     }
     return sorted;
-  }, [games, filter, genreFilter, installedOnly, query, minRating, sortBy, ratings]);
+  }, [ratingGroups, groupOpen, filteredGames, sortBy, ratings]);
+
+  const gridRows = useMemo(() => {
+    if (!ratingGroups) return undefined;
+    return buildGridRows(ratingGroups, groupOpen, cols);
+  }, [ratingGroups, groupOpen, cols]);
+
+  const toggleRatingGroup = useCallback((groupId: RatingBandId) => {
+    setGroupOpen((prev) => ({ ...prev, [groupId]: !prev[groupId] }));
+  }, []);
 
   useEffect(() => {
     if (visibleGames.length === 0) {
@@ -576,6 +641,18 @@ export default function App(): JSX.Element {
       document.body.classList.toggle('gamepad-active', device === 'gamepad');
       if (device === 'gamepad') {
         requestAnimationFrame(() => ensureFocus(getPadRoot()));
+      }
+    },
+    onPadStatus: (status) => {
+      const prev = padStatusRef.current;
+      padStatusRef.current = status;
+      if (status.connected && !prev.connected) {
+        const short = (status.id ?? 'Controle').split('(')[0]?.trim() || 'Controle';
+        notify(`Controle detectado: ${short} — aperte um botão para navegar`);
+      } else if (status.active && !prev.active) {
+        notify('Navegação por controle ativa');
+      } else if (!status.connected && prev.connected) {
+        notify('Controle desconectado');
       }
     },
     onAction: (action) => {
@@ -1079,10 +1156,10 @@ export default function App(): JSX.Element {
         >
           <option value="name">Ordenar: nome</option>
           <option value="rating">Ordenar: nota (Steam %)</option>
-          <option value="steam">Ordenar: Steam %</option>
           {/* Temporário: RAWG/Metacritic pausados
           <option value="metacritic">Ordenar: Metacritic</option>
           <option value="rawg">Ordenar: RAWG</option>
+          <option value="steam">Ordenar: Steam %</option>
           */}
           <option value="recent">Ordenar: recentes</option>
         </select>
@@ -1104,7 +1181,11 @@ export default function App(): JSX.Element {
             ))}
           </select>
         )}
-        <span className="toolbar__count">{visibleGames.length} de {games.length} jogos</span>
+        <span className="toolbar__count">
+          {useRatingGroups
+            ? `${visibleGames.length} visíveis · ${filteredGames.length} de ${games.length}`
+            : `${visibleGames.length} de ${games.length} jogos`}
+        </span>
       </div>
 
       {view.kind === 'library' && filter === 'all' && !query && recentGames.length > 0 && (
@@ -1130,7 +1211,7 @@ export default function App(): JSX.Element {
         </section>
       )}
 
-      {visibleGames.length === 0 ? (
+      {filteredGames.length === 0 ? (
         <section className="empty">
           {games.length === 0 ? (
             <>
@@ -1149,11 +1230,12 @@ export default function App(): JSX.Element {
         </section>
       ) : (
         <VirtualizedGameGrid
-          games={visibleGames}
+          games={gridRows ? undefined : visibleGames}
+          rows={gridRows}
           cols={cols}
           selected={selected}
           scores={Object.fromEntries(
-            visibleGames.map((g) => [g.id, ratings[g.id]?.score ?? null])
+            filteredGames.map((g) => [g.id, ratings[g.id]?.score ?? null])
           )}
           ratings={ratings}
           hideScores={hideNotes}
@@ -1161,6 +1243,7 @@ export default function App(): JSX.Element {
           gap={profileTokens.cardGap}
           onSelect={setSelected}
           onOpen={(gameId) => setView({ kind: 'detail', gameId })}
+          onToggleGroup={toggleRatingGroup}
         />
       )}
 
@@ -1183,7 +1266,7 @@ export default function App(): JSX.Element {
           onLaunch={launch}
           onInstall={install}
           onSeparateSource={separateSource}
-          onSyncRating={() => void syncRatings()}
+          onSyncRating={() => void syncRatings(true, { gameIds: [detailGame.id] })}
         />
       )}
 

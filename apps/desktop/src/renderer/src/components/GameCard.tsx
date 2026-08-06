@@ -42,7 +42,24 @@ export default function GameCard({
   const meta = displaySourceScore(ratingSummary, 'metacritic');
   const rawg = displaySourceScore(ratingSummary, 'rawg');
   const steam = displaySourceScore(ratingSummary, 'steam');
-  const hasBreakdown = Boolean(meta || rawg || steam);
+  const showScore = !hideScore && score != null && score > 0;
+  const steamReviews =
+    ratingSummary?.sources.find((s) => s.source === 'steam')?.reviewCount ?? null;
+  // Breakdown só se houver fontes além da nota principal já no canto (evita duplicar Steam %)
+  const extraBreakdown =
+    !hideScore && Boolean(meta || rawg || (steam != null && ratingSummary?.source !== 'steam'));
+
+  const metaBits: string[] = [];
+  if (preferred?.lastPlayedAt) metaBits.push(`Jogado ${dateLabel(preferred.lastPlayedAt)}`);
+  if (game.sources.length > 1) metaBits.push(`${game.sources.length} fontes`);
+
+  const scoreTitle =
+    ratingSummary?.source === 'steam'
+      ? `Steam ${Math.round(score ?? 0)}%` +
+        (steamReviews != null && steamReviews > 0
+          ? ` · ${steamReviews.toLocaleString('pt-BR')} reviews`
+          : '')
+      : `Nota ${Math.round(score ?? 0)}`;
 
   return (
     <button
@@ -60,32 +77,43 @@ export default function GameCard({
         ) : (
           <div className="card__placeholder">{game.title.slice(0, 1).toUpperCase()}</div>
         )}
-        {uniqueBadges.length > 0 && (
-          <span className="card__badge">{uniqueBadges.join(' · ')}</span>
-        )}
-        {game.isRemote && <span className="card__badge card__badge--remote">Remote</span>}
-        {!hideScore && score !== undefined && score !== null && score > 0 && (
-          <span className={`card__score ${score >= 80 ? 'card__score--high' : ''}`}>
-            {Math.round(score)}
-          </span>
-        )}
-      </div>
-      <div className="card__title">{game.title}</div>
-      {!hideScore && hasBreakdown && (
-        <div className="card__ratings" title="Metacritic · RAWG · Steam % positivas">
-          {meta != null && <span className="card__rating card__rating--meta">MC {Math.round(meta)}</span>}
-          {rawg != null && <span className="card__rating card__rating--rawg">R {rawg}</span>}
-          {steam != null && (
-            <span className="card__rating card__rating--steam">S {Math.round(steam)}%</span>
+        <div className="card__chrome">
+          <div className="card__badges">
+            {uniqueBadges.length > 0 && (
+              <span className="card__badge" title={uniqueBadges.join(' · ')}>
+                {uniqueBadges.length <= 2
+                  ? uniqueBadges.join(' · ')
+                  : `${uniqueBadges[0]} +${uniqueBadges.length - 1}`}
+              </span>
+            )}
+            {game.isRemote && <span className="card__badge card__badge--remote">Remote</span>}
+          </div>
+          {showScore && (
+            <span
+              className={`card__score ${score >= 80 ? 'card__score--high' : ''}`}
+              title={scoreTitle}
+            >
+              {Math.round(score)}
+              {ratingSummary?.source === 'steam' ? '%' : ''}
+            </span>
           )}
         </div>
-      )}
-      {preferred?.lastPlayedAt && (
-        <div className="card__meta">Jogado {dateLabel(preferred.lastPlayedAt)}</div>
-      )}
-      {game.sources.length > 1 && (
-        <div className="card__meta">{game.sources.length} fontes</div>
-      )}
+      </div>
+      <div className="card__body">
+        <div className="card__title">{game.title}</div>
+        {extraBreakdown && (
+          <div className="card__ratings" title="Metacritic · RAWG · Steam">
+            {meta != null && (
+              <span className="card__rating card__rating--meta">MC {Math.round(meta)}</span>
+            )}
+            {rawg != null && <span className="card__rating card__rating--rawg">R {rawg}</span>}
+            {steam != null && ratingSummary?.source !== 'steam' && (
+              <span className="card__rating card__rating--steam">S {Math.round(steam)}%</span>
+            )}
+          </div>
+        )}
+        {metaBits.length > 0 && <div className="card__meta">{metaBits.join(' · ')}</div>}
+      </div>
     </button>
   );
 }

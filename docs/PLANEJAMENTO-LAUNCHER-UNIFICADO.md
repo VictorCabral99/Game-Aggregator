@@ -772,7 +772,7 @@ Fazer o usuário **redescobrir** jogos que já possui e são bem avaliados, mas 
 - Integração ratings: **Steam review % (ativo)**; RAWG + Metacritic via RAWG **pausados temporariamente** (api.rawg.io 522 / match frágil)
 - Exibir nota composta + breakdown por fonte na ficha do jogo (hoje prioriza Steam)
 - Exibir % positivas estilo Steam quando disponível
-- Lookup de Steam AppID: SearchApps + storesearch + variantes de título (threshold 300)
+- Lookup de Steam AppID: SearchApps + storesearch + variantes de título (threshold 300); campo `steamAppId` na ficha + link SteamDB
 - Log de batch em `userData/logs/ratings-*.log` (+ console `[ratings]`)
 - Ordenação da biblioteca por:
   - Nota (Steam % / composta)

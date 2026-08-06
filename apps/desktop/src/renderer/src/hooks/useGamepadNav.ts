@@ -2,18 +2,20 @@ import { useEffect, useRef } from 'react';
 
 export type InputDevice = 'gamepad' | 'mouse' | 'keyboard';
 
-const DEADZONE = 0.45;
+const DEADZONE = 0.32;
 const REPEAT_DELAY_MS = 280;
-const REPEAT_INTERVAL_MS = 120;
+const REPEAT_INTERVAL_MS = 110;
 const CURSOR_HIDE_MS = 3000;
-/** Ignora micro-movimento do mouse enquanto o controle está ativo. */
-const MOUSE_STEAL_PX = 8;
+/** Só rouba do gamepad com movimento grande intencional (não drift do Windows). */
+const MOUSE_STEAL_FROM_PAD_PX = 120;
 
 interface Options {
   enabled: boolean;
   tvMode: boolean;
   onDeviceChange?: (device: InputDevice) => void;
   onAction?: (action: GamepadAction) => void;
+  /** Aviso quando o pad conecta ou ativa. */
+  onPadStatus?: (status: { connected: boolean; id: string | null; active: boolean }) => void;
 }
 
 export type GamepadAction =
@@ -31,22 +33,14 @@ export type GamepadAction =
 const AXIS_X = 0;
 const AXIS_Y = 1;
 
-function anyPad(): Gamepad | null {
-  const pads = navigator.getGamepads?.() ?? [];
-  for (const p of pads) {
-    if (p && p.connected) return p;
-  }
-  return null;
-}
-
-function buttonPressed(pad: Gamepad, i: number): boolean {
+export function buttonPressed(pad: Gamepad, i: number): boolean {
   const b = pad.buttons[i];
   if (!b) return false;
   return b.pressed || b.value > 0.5;
 }
 
-/** Direção do D-pad / stick / hat (eixos extras em alguns pads Windows). */
-function readNavDir(pad: Gamepad): 'up' | 'down' | 'left' | 'right' | null {
+/** Direção do D-pad / stick / eixos extras (alguns pads Windows). */
+export function readNavDir(pad: Gamepad): 'up' | 'down' | 'left' | 'right' | null {
   const axisX = pad.axes[AXIS_X] ?? 0;
   const axisY = pad.axes[AXIS_Y] ?? 0;
   if (Math.abs(axisX) > DEADZONE || Math.abs(axisY) > DEADZONE) {
@@ -54,13 +48,13 @@ function readNavDir(pad: Gamepad): 'up' | 'down' | 'left' | 'right' | null {
     return axisY < 0 ? 'up' : 'down';
   }
 
-  // Hat / D-pad como eixos (comum em alguns drivers)
-  for (const [hx, hy] of [
+  for (const [ax, ay] of [
+    [2, 3],
     [6, 7],
     [4, 5],
   ] as const) {
-    const x = pad.axes[hx];
-    const y = pad.axes[hy];
+    const x = pad.axes[ax];
+    const y = pad.axes[ay];
     if (x == null || y == null) continue;
     if (Math.abs(x) > 0.5 || Math.abs(y) > 0.5) {
       if (Math.abs(x) >= Math.abs(y)) return x < 0 ? 'left' : 'right';
@@ -75,12 +69,28 @@ function readNavDir(pad: Gamepad): 'up' | 'down' | 'left' | 'right' | null {
   return null;
 }
 
-function anyInput(pad: Gamepad): boolean {
+export function anyInput(pad: Gamepad): boolean {
   if (readNavDir(pad)) return true;
   for (let i = 0; i < pad.buttons.length; i += 1) {
     if (buttonPressed(pad, i)) return true;
   }
+  for (let i = 0; i < pad.axes.length; i += 1) {
+    const v = pad.axes[i] ?? 0;
+    if (Math.abs(v) > DEADZONE) return true;
+  }
   return false;
+}
+
+/** Prefere o pad que está gerando input; senão o primeiro conectado. */
+export function pickActivePad(): Gamepad | null {
+  const pads = navigator.getGamepads?.() ?? [];
+  let fallback: Gamepad | null = null;
+  for (const p of pads) {
+    if (!p || !p.connected) continue;
+    if (!fallback) fallback = p;
+    if (anyInput(p)) return p;
+  }
+  return fallback;
 }
 
 export function useGamepadNav({
@@ -88,16 +98,19 @@ export function useGamepadNav({
   tvMode,
   onDeviceChange,
   onAction,
+  onPadStatus,
 }: Options): void {
   const state = useRef({
     device: 'keyboard' as InputDevice,
     buttons: new Set<number>(),
     lastCursorHide: 0,
     lastMouse: { x: 0, y: 0 },
-    seenPad: false,
+    mousePrimed: false,
+    lastPadId: null as string | null,
+    announcedConnect: false,
   });
-  const opts = useRef({ enabled, tvMode, onDeviceChange, onAction });
-  opts.current = { enabled, tvMode, onDeviceChange, onAction };
+  const opts = useRef({ enabled, tvMode, onDeviceChange, onAction, onPadStatus });
+  opts.current = { enabled, tvMode, onDeviceChange, onAction, onPadStatus };
 
   useEffect(() => {
     if (!enabled) return;
@@ -111,11 +124,16 @@ export function useGamepadNav({
       document.body.classList.remove('cursor-hidden');
     };
 
+    const emitStatus = (connected: boolean, id: string | null, active: boolean) => {
+      opts.current.onPadStatus?.({ connected, id, active });
+    };
+
     const markMouse = () => {
       if (s.device !== 'mouse') {
         s.device = 'mouse';
         opts.current.onDeviceChange?.('mouse');
         showCursor();
+        emitStatus(Boolean(s.lastPadId), s.lastPadId, false);
       }
       if (opts.current.tvMode) s.lastCursorHide = Date.now();
     };
@@ -124,31 +142,38 @@ export function useGamepadNav({
         s.device = 'keyboard';
         opts.current.onDeviceChange?.('keyboard');
         showCursor();
+        emitStatus(Boolean(s.lastPadId), s.lastPadId, false);
       }
     };
-    const markGamepad = () => {
+    const markGamepad = (pad: Gamepad) => {
+      s.lastPadId = pad.id;
       if (s.device !== 'gamepad') {
         s.device = 'gamepad';
         opts.current.onDeviceChange?.('gamepad');
         if (opts.current.tvMode) hideCursor();
+        console.log('[gamepad] ativo:', pad.id, 'mapping=', pad.mapping || '(none)');
       }
+      emitStatus(true, pad.id, true);
     };
 
     const onMouseMove = (e: MouseEvent) => {
+      if (!s.mousePrimed) {
+        s.lastMouse = { x: e.clientX, y: e.clientY };
+        s.mousePrimed = true;
+        return;
+      }
       const dx = Math.abs(e.clientX - s.lastMouse.x);
       const dy = Math.abs(e.clientY - s.lastMouse.y);
       s.lastMouse = { x: e.clientX, y: e.clientY };
-      if (s.device === 'gamepad' && dx + dy < MOUSE_STEAL_PX) return;
+
+      // Com gamepad ativo: só movimento grande rouba (evita drift do Windows)
+      if (s.device === 'gamepad' && dx + dy < MOUSE_STEAL_FROM_PAD_PX) return;
       markMouse();
     };
     const onMouseDown = () => markMouse();
-    const onKeyDown = (e: KeyboardEvent) => {
-      // Ignora teclas sintéticas (se algum código ainda disparar)
-      if (!e.isTrusted) return;
-      markKeyboard();
-    };
+    const onKeyDown = () => markKeyboard();
 
-    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mousemove', onMouseMove, { passive: true });
     window.addEventListener('mousedown', onMouseDown);
     window.addEventListener('keydown', onKeyDown);
 
@@ -187,29 +212,31 @@ export function useGamepadNav({
     };
 
     const tick = () => {
-      const pad = anyPad();
+      const pad = pickActivePad();
       if (!pad) {
         held.dir = null;
+        if (s.lastPadId) {
+          s.lastPadId = null;
+          s.announcedConnect = false;
+          emitStatus(false, null, false);
+        }
         return;
       }
 
-      // DEBUG: log gamepad detectado
-      if (!s.seenPad) {
-        console.log('[gamepad] detectado:', {
+      if (!s.announcedConnect || s.lastPadId !== pad.id) {
+        s.announcedConnect = true;
+        s.lastPadId = pad.id;
+        console.log('[gamepad] conectado:', {
           id: pad.id,
           index: pad.index,
-          connected: pad.connected,
           buttons: pad.buttons.length,
           axes: pad.axes.length,
-          mapping: pad.mapping,
+          mapping: pad.mapping || '(none)',
         });
+        emitStatus(true, pad.id, s.device === 'gamepad');
       }
 
-      // Precisa de 1 interação do usuário (spec) — qualquer botão/stick ativa
-      if (anyInput(pad)) {
-        s.seenPad = true;
-        markGamepad();
-      }
+      if (anyInput(pad)) markGamepad(pad);
       if (s.device !== 'gamepad') return;
 
       const now = performance.now();
@@ -217,13 +244,13 @@ export function useGamepadNav({
       if (dir) fireNav(dir, now);
       else held.dir = null;
 
-      // Standard Gamepad: 0=A/Cross, 1=B/Circle, 2=X/Square, 3=Y/Triangle
+      // Standard: 0=A, 1=B, 2=X, 3=Y, 8=Select, 9=Start
       if (edgePress(pad, 0)) opts.current.onAction?.('confirm');
       if (edgePress(pad, 1)) opts.current.onAction?.('back');
       if (edgePress(pad, 2)) opts.current.onAction?.('open');
       if (edgePress(pad, 3)) opts.current.onAction?.('search');
-      if (edgePress(pad, 9)) opts.current.onAction?.('settings'); // Start
-      if (edgePress(pad, 8)) opts.current.onAction?.('emulation'); // Select/Back
+      if (edgePress(pad, 9)) opts.current.onAction?.('settings');
+      if (edgePress(pad, 8)) opts.current.onAction?.('emulation');
 
       if (opts.current.tvMode && Date.now() - s.lastCursorHide > CURSOR_HIDE_MS) {
         hideCursor();
@@ -237,20 +264,39 @@ export function useGamepadNav({
     };
     raf = window.requestAnimationFrame(loop);
 
-    const onConnected = () => {
-      // força Chromium a atualizar a lista
+    const onConnected = (e: Event) => {
       void navigator.getGamepads?.();
-      console.log('[gamepad] gamepadconnected event fired');
+      const ge = e as GamepadEvent;
+      console.log('[gamepad] gamepadconnected', ge.gamepad?.id);
+      if (ge.gamepad) {
+        s.lastPadId = ge.gamepad.id;
+        s.announcedConnect = true;
+        emitStatus(true, ge.gamepad.id, false);
+        if (anyInput(ge.gamepad)) markGamepad(ge.gamepad);
+      }
+    };
+    const onDisconnected = (e: Event) => {
+      const ge = e as GamepadEvent;
+      console.log('[gamepad] gamepaddisconnected', ge.gamepad?.id);
+      s.buttons.clear();
+      s.announcedConnect = false;
+      s.lastPadId = null;
+      emitStatus(false, null, false);
+      if (s.device === 'gamepad') {
+        s.device = 'keyboard';
+        opts.current.onDeviceChange?.('keyboard');
+      }
     };
     window.addEventListener('gamepadconnected', onConnected);
-    window.addEventListener('gamepaddisconnected', onConnected);
+    window.addEventListener('gamepaddisconnected', onDisconnected);
+    void navigator.getGamepads?.();
 
     return () => {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mousedown', onMouseDown);
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('gamepadconnected', onConnected);
-      window.removeEventListener('gamepaddisconnected', onConnected);
+      window.removeEventListener('gamepaddisconnected', onDisconnected);
       window.cancelAnimationFrame(raf);
       showCursor();
     };

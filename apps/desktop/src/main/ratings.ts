@@ -12,6 +12,12 @@ import type { EnrichEvent, RatingsSummary, RatingsSyncResult } from '../shared/a
 import type { Game } from './db/games';
 import { downloadCoverForGame } from './ipc/cover';
 import { createRatingsFileLog, type RatingsFileLog } from './ratings-log';
+import {
+  resolveSteamAppIdForGame,
+  steamAppIdSettingKey,
+  steamDbInfoUrl,
+  steamLookupSettingKey,
+} from './steam-appid';
 
 const RATINGS_TTL_MS = 7 * 24 * 3600 * 1000;
 const CONCURRENCY = 3;
@@ -20,28 +26,16 @@ const CONCURRENCY = 3;
 //   return process.env.RAWG_API_KEY ?? getSetting('keys.rawg') ?? '';
 // }
 
-function steamAppIdKey(gameId: string): string {
-  return `steam.appid.${gameId}`;
-}
-
-function steamLookupKey(gameId: string): string {
-  return `steam.lookup.${gameId}`;
-}
-
-function getResolvedSteamAppId(gameId: string): string | null {
-  return getSetting(steamAppIdKey(gameId))?.trim() || null;
-}
-
 function setResolvedSteamAppId(gameId: string, appid: string): void {
-  setSetting(steamAppIdKey(gameId), appid);
+  setSetting(steamAppIdSettingKey(gameId), appid);
 }
 
 function isSteamLookupDone(gameId: string): boolean {
-  return getSetting(steamLookupKey(gameId)) === '1';
+  return getSetting(steamLookupSettingKey(gameId)) === '1';
 }
 
 function markSteamLookupDone(gameId: string): void {
-  setSetting(steamLookupKey(gameId), '1');
+  setSetting(steamLookupSettingKey(gameId), '1');
 }
 
 /** Só fontes emulator → não resolve Steam AppID. */
@@ -53,12 +47,6 @@ function isRetroOnly(game: Game): boolean {
 function needsCoverDownload(game: Game): boolean {
   if (game.coverPath) return false;
   return game.sources.some((s) => s.platform === 'emulator');
-}
-
-function resolveSteamAppIdForGame(game: Game): string | null {
-  const fromSteam = game.sources.find((s) => s.platform === 'steam' && s.externalId)?.externalId;
-  if (fromSteam) return fromSteam;
-  return getResolvedSteamAppId(game.id);
 }
 
 /** Índice: nota Steam útil + fresca. */
@@ -227,6 +215,7 @@ async function enrichSteamRating(
       rating: steamPercent,
       reviewCount: steamCount,
       matchedName: appid ? `Steam App ${appid}` : null,
+      url: appid ? steamDbInfoUrl(appid) : null,
     });
 
     // ratingsRepo.upsert({ gameId, source: 'rawg', ... });
@@ -327,6 +316,7 @@ async function processSteamRatings(
 
     const fresh = repo.get(game.id);
     const current = ++totals.index;
+    const steamAppId = resolveSteamAppIdForGame(fresh ?? game);
     send({
       type: 'item',
       index: current,
@@ -336,6 +326,7 @@ async function processSteamRatings(
       coverOk: Boolean(fresh?.coverPath || fresh?.coverUrl),
       coverPath: fresh?.coverPath ?? null,
       summary: getRatingsRepository().summaryForGame(game.id),
+      steamAppId,
       skipped: skipped || !gotScore,
     });
   });

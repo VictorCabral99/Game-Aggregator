@@ -22,13 +22,14 @@ Duas opções para foco 2D:
 
 **Engine próprio** (opção 2), com:
 
-- `useGamepadNav` (renderer): poll de `navigator.getGamepads()`, debounce + repeat
-  delay para navegação contínua, e emissão de `KeyboardEvent`s sintéticos.
-- Mapa de botões: A=Enter (confirm/play), B=Escape (back), X=Enter (abrir ficha),
-  Y=foco busca, Start=settings, Select=abrir "Emulação".
-- **Last input device wins**: se o usuário mexe mouse/teclado, gamepad para de
-  emular; se mexe o gamepad, cursor esconde (modo TV) e foco volta à grade.
-- O estado de foco (`selected` + colunas) continua em `App.tsx` — nada de lib nova.
+- `useGamepadNav` (renderer): poll `navigator.getGamepads()` via `requestAnimationFrame`,
+  repeat delay, e **ações diretas** (`onAction`) + foco espacial (`spatialFocus`) —
+  não depende mais de teclas sintéticas.
+- Mapa: A=confirm, B=back, X=open, Y=search, Start=settings, Select=emulation.
+- **Last input device wins**, com cuidado no mouse: com gamepad ativo, só clique ou
+  movimento ≥ ~120px troca para mouse (micro-drift do Windows não “mata” o pad).
+- Toast em `gamepadconnected` / ativação; logs `[gamepad]` no console.
+- Foco (`selected` + grade virtual + `data-pad-root`) em `App.tsx` / `spatialFocus`.
 
 ## Consequências
 

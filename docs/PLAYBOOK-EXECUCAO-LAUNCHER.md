@@ -568,7 +568,7 @@ Perfis multi-device (Fase 8), voice, temas complexos.
 | P5-02 | Focus engine: grade 2D, detalhe, settings, modais | ✅ `useGamepadNav` emite eventos de teclado; modais respondem (Enter/Escape) |
 | P5-03 | Mapa botões: A confirm/play, B back, X options, Y search, Start settings | ✅ A=Enter, B=Escape, X=Enter (ficha), Y=foco busca, Start=settings, Select=Emulação |
 | P5-04 | Stick + D-pad; repeat delay | ✅ deadzone 0.55 + delay 300ms + intervalo 130ms |
-| P5-05 | Last input device wins (mouse vs gamepad) | ✅ `device` muda entre gamepad/mouse/keyboard |
+| P5-05 | Last input device wins (mouse vs gamepad) | ✅ mouse ≥120px ou clique rouba pad; toast connect/ativo; helpers cobertos por teste |
 | P5-06 | UI TV: type scale, 5–6 colunas max @1080p, safe margin 5% | ✅ `body.tv-mode`: `--card-w`, margens ≥3%, escala de título |
 | P5-07 | Hide cursor após 3s inatividade (modo TV) | ✅ `.cursor-hidden` (3s) em modo TV |
 | P5-08 | Seção “Continuar / Recentes” no topo | ✅ faixa "Continuar" (últimos 8 por `lastPlayedAt`) |
@@ -615,8 +615,8 @@ Wishlist/deals, reviews textuais UGC. **RAWG/Metacritic fetch** (comentado até 
 | P6-02 | Tabelas `ratings` + `api_cache` | ✅ migration v6 + `RatingsRepository` |
 | P6-03 | Job batch enrich (concurrency 2–3, TTL 7d) | ✅ Steam-only batch + log `userData/logs/ratings-*.log` |
 | P6-04 | Steam percentPositive (store API) + AppID lookup | ✅ `/appreviews` + SearchApps/storesearch + variantes (threshold 300) |
-| P6-05 | UI ficha: scores + breakdown | ✅ `GameDetailModal` com notas por fonte + stale indicator |
-| P6-06 | Sort: note, name, playtime, size, requirements tier | ✅ sort nome/Steam%/recentes (RAWG/Meta sort comentado) |
+| P6-05 | UI ficha: scores + breakdown | ✅ notas + `steamAppId` + botão SteamDB (`steamdb.info/app/{id}`) |
+| P6-06 | Sort: note, name, playtime, size, requirements tier | ✅ sort nome/Steam%/recentes; por nota: faixas colapsáveis + grupo “Poucas reviews (<100)” |
 | P6-07 | Filtros: nota≥80, never played, not played 6m | ✅ chip "Nota ≥ 80" + sort por nota |
 | P6-08 | Shelf “Esquecidos bem avaliados” | ❌ removida — lista pura + ordenações |
 | P6-09 | Setting esconder notas | ✅ `ui.hideRatings` no SettingsModal |

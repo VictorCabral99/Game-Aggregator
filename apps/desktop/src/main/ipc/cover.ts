@@ -3,8 +3,9 @@ import { createWriteStream } from 'node:fs';
 import { copyFile, mkdir } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getCacheRow, getLibraryRepository, getSetting, upsertCache } from '../db';
+import { getCacheRow, getLibraryRepository, upsertCache } from '../db';
 import type { Game } from '../db/games';
+import { resolveSteamAppIdForGame } from '../steam-appid';
 import {
   libretroBoxartUrl,
   libretroCoverCandidates,
@@ -27,12 +28,6 @@ const BOXART_INDEX_TTL_MS = 30 * 24 * 3600 * 1000;
 
 /** Cache em memória por sessão (evita reparse HTML a cada jogo). */
 const boxartIndexMemory = new Map<string, string[]>();
-
-function resolvedSteamAppId(game: Game): string | null {
-  const fromSource = game.sources.find((s) => s.platform === 'steam' && s.externalId)?.externalId;
-  if (fromSource) return fromSource;
-  return getSetting(`steam.appid.${game.id}`)?.trim() || null;
-}
 
 function logCover(msg: string): void {
   console.log(msg.startsWith('[cover]') ? msg : `[cover] ${msg}`);
@@ -121,7 +116,7 @@ async function coverCandidatesForRetro(game: Game): Promise<string[]> {
 function coverCandidatesStore(game: Game): string[] {
   const urls: string[] = [];
   if (game.coverUrl) urls.push(game.coverUrl);
-  const appid = resolvedSteamAppId(game);
+  const appid = resolveSteamAppIdForGame(game);
   if (appid) {
     urls.push(`https://cdn.cloudflare.steamstatic.com/steam/apps/${appid}/library_600x900.jpg`);
   }

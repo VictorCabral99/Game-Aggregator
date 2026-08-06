@@ -67,10 +67,20 @@ export interface Game {
   launchArgs: string | null;
   /** Badge Remote — jogo marcado como stream/remoto. P8-04. */
   isRemote: boolean;
+  /**
+   * Steam AppID resolvido (fonte Steam ou lookup por título).
+   * Retro-only fica null. Usado p/ notas e link SteamDB.
+   */
+  steamAppId: string | null;
   createdAt: string;
   updatedAt: string;
   preferredSource: GameSource | null;
   sources: GameSource[];
+}
+
+/** Link SteamDB.info para um AppID. */
+export function steamDbInfoUrl(appId: string): string {
+  return `https://steamdb.info/app/${encodeURIComponent(appId.trim())}/`;
 }
 
 export interface CreateGameInput {
@@ -296,6 +306,7 @@ export type EnrichEvent =
       coverOk: boolean;
       coverPath: string | null;
       summary: RatingsSummary | null;
+      steamAppId?: string | null;
       skipped?: boolean;
     }
   | {
