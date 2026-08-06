@@ -292,7 +292,6 @@ export default function App(): JSX.Element {
       let totalUpdated = 0;
       let totalCovers = 0;
       let totalAttempted = 0;
-      let lastNoKey = false;
       let batches = 0;
 
       // quiet: lotes de 48 até esgotar elegíveis (não para no primeiro)
@@ -302,7 +301,6 @@ export default function App(): JSX.Element {
           force: force && batches === 1,
           maxGames: batchSize,
         });
-        lastNoKey = Boolean(res.noKey);
         totalUpdated += res.updated;
         totalCovers += res.covers ?? 0;
         totalAttempted += res.attempted;
@@ -316,13 +314,20 @@ export default function App(): JSX.Element {
       }
 
       if (!opts?.quiet) {
-        if (lastNoKey && totalUpdated === 0 && totalCovers === 0) {
-          notify('Defina a chave RAWG em Configurações para buscar notas', 'error');
-        } else if (totalAttempted > 0) {
+        if (totalAttempted === 0) {
+          notify('Nenhuma nota Steam pendente (tudo recente ou só retro)');
+        } else if (totalUpdated > 0) {
           notify(
-            `Enriquecimento: ${totalUpdated} notas` +
+            `Steam %: ${totalUpdated} notas` +
               (totalCovers ? ` · ${totalCovers} capas retro` : '') +
               (batches > 1 ? ` · ${batches} lotes` : '')
+          );
+        } else {
+          notify(
+            `Steam %: 0 notas em ${totalAttempted} tentativas` +
+              (totalCovers ? ` · ${totalCovers} capas` : '') +
+              ' — veja logs em userData/logs/ratings-*.log',
+            'error'
           );
         }
       }
@@ -1001,7 +1006,7 @@ export default function App(): JSX.Element {
             />
           </div>
           <span className="hint">
-            Retro → capas → notas — {enrichProgress.title}
+            Capas retro → Steam % — {enrichProgress.title}
           </span>
         </div>
       )}
@@ -1073,16 +1078,20 @@ export default function App(): JSX.Element {
           className="genre-filter"
           value={sortBy}
           onChange={(e) => {
-            setSortBy(e.target.value as 'name' | 'rating' | 'recent');
+            setSortBy(
+              e.target.value as 'name' | 'rating' | 'rawg' | 'metacritic' | 'steam' | 'recent'
+            );
             setSelected(0);
           }}
           aria-label="Ordenar por"
         >
           <option value="name">Ordenar: nome</option>
-          <option value="rating">Ordenar: nota (geral)</option>
+          <option value="rating">Ordenar: nota (Steam %)</option>
+          <option value="steam">Ordenar: Steam %</option>
+          {/* Temporário: RAWG/Metacritic pausados
           <option value="metacritic">Ordenar: Metacritic</option>
           <option value="rawg">Ordenar: RAWG</option>
-          <option value="steam">Ordenar: Steam %</option>
+          */}
           <option value="recent">Ordenar: recentes</option>
         </select>
         {allGenres.length > 0 && (

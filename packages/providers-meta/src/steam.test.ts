@@ -1,5 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SteamAPI } from './steam';
+import { SteamAPI, steamSearchTerms } from './steam';
+
+describe('steamSearchTerms', () => {
+  it('gera variantes limpas do título', () => {
+    const terms = steamSearchTerms('Hades II: Deluxe Edition');
+    expect(terms[0]).toMatch(/Hades II/i);
+    expect(terms.length).toBeGreaterThan(1);
+    expect(terms.length).toBeLessThanOrEqual(5);
+  });
+
+  it('remove edições comuns', () => {
+    const terms = steamSearchTerms('Celeste Game of the Year Edition');
+    expect(terms.some((t) => /celeste/i.test(t) && !/edition/i.test(t))).toBe(true);
+  });
+});
 
 describe('SteamAPI.getReviewScore', () => {
   const api = new SteamAPI();
@@ -72,44 +86,64 @@ describe('SteamAPI.findAppIdByTitle', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('retorna null quando a melhor pontuação fica abaixo de 100', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [{ type: 'app', id: 1, name: 'Completely Unrelated Title' }],
-      }),
-    } as Response);
+  it('retorna null quando a melhor pontuação fica abaixo de 300', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('SearchApps')) {
+        return {
+          ok: true,
+          json: async () => [{ appid: 1, name: 'Completely Unrelated Title' }],
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          items: [{ type: 'app', id: 1, name: 'Completely Unrelated Title' }],
+        }),
+      } as Response;
+    });
 
     const result = await api.findAppIdByTitle('Celeste');
     expect(result.appid).toBeNull();
   });
 
-  it('retorna o appid do melhor match', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [
-          { type: 'app', id: 99, name: 'Celestia' },
-          { type: 'app', id: 504230, name: 'Celeste' },
-        ],
-      }),
-    } as Response);
+  it('retorna o appid do melhor match via SearchApps', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('SearchApps')) {
+        return {
+          ok: true,
+          json: async () => [
+            { appid: 99, name: 'Celestia' },
+            { appid: 504230, name: 'Celeste' },
+          ],
+        } as Response;
+      }
+      return { ok: true, json: async () => ({ items: [] }) } as Response;
+    });
 
     const result = await api.findAppIdByTitle('Celeste');
     expect(result.appid).toBe(504230);
     expect(result.matchedName).toBe('Celeste');
+    expect(result.score).toBeGreaterThanOrEqual(300);
   });
 
-  it('ignora itens que não são app', async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        items: [
-          { type: 'bundle', id: 1, name: 'Celeste' },
-          { type: 'app', id: 504230, name: 'Celeste' },
-        ],
-      }),
-    } as Response);
+  it('ignora itens que não são app no storesearch', async () => {
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('SearchApps')) {
+        return { ok: true, json: async () => [] } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            { type: 'bundle', id: 1, name: 'Celeste' },
+            { type: 'app', id: 504230, name: 'Celeste' },
+          ],
+        }),
+      } as Response;
+    });
 
     const result = await api.findAppIdByTitle('Celeste');
     expect(result.appid).toBe(504230);

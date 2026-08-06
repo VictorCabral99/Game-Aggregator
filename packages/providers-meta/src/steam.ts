@@ -14,6 +14,24 @@ async function getJson<T>(url: string, timeoutMs = 10000): Promise<T> {
   }
 }
 
+/** Fetch que não lança em HTTP 4xx/5xx (SearchApps às vezes responde vazio). */
+async function getJsonLoose<T>(url: string, timeoutMs = 8000): Promise<T | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept-Language': 'en' },
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface SteamReviewScore {
   percent: number | null;
   totalReviews: number;
@@ -25,6 +43,43 @@ export interface SteamWishlistGame {
   name: string;
   priority: number;
   added: number;
+}
+
+export interface SteamFindAppResult {
+  appid: number | null;
+  matchedName: string | null;
+  score?: number;
+  query?: string;
+}
+
+/** Gera termos de busca mais limpos a partir do título da loja. */
+export function steamSearchTerms(title: string): string[] {
+  const terms: string[] = [];
+  const push = (raw: string) => {
+    const s = raw
+      .replace(/™|®|©/g, '')
+      .replace(/[_/]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (s.length >= 2 && !terms.some((t) => t.toLowerCase() === s.toLowerCase())) {
+      terms.push(s);
+    }
+  };
+
+  push(title);
+  push(title.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' '));
+  const colon = title.split(':')[0];
+  if (colon && colon.trim().length >= 3) push(colon);
+  const dash = title.split(/\s+[—–|-]\s+/)[0];
+  if (dash && dash.trim().length >= 3) push(dash);
+  push(
+    title.replace(
+      /\b(game of the year|goty|deluxe|ultimate|definitive|complete|gold|premium|legendary|enhanced|remastered|hd|standard|edition|director'?s cut|anniversary)\b/gi,
+      ' '
+    )
+  );
+
+  return terms.slice(0, 5);
 }
 
 export class SteamAPI {
@@ -71,35 +126,80 @@ export class SteamAPI {
     }
   }
 
-  async findAppIdByTitle(title: string): Promise<{ appid: number | null; matchedName: string | null }> {
-    const q = title.trim();
-    if (!q) return { appid: null, matchedName: null };
+  /**
+   * Resolve Steam appid pelo título.
+   * Tenta variantes + SearchApps (community) e storesearch. Threshold 300.
+   */
+  async findAppIdByTitle(title: string): Promise<SteamFindAppResult> {
+    const terms = steamSearchTerms(title);
+    if (terms.length === 0) return { appid: null, matchedName: null };
 
-    try {
-      const params = new URLSearchParams({ term: q, l: 'english', cc: 'US' });
-      const data = await getJson<{ items?: Array<{ type?: string; name?: string; id?: number }> }>(
-        `${STEAM_STORE_BASE}/api/storesearch/?${params.toString()}`
+    const state: {
+      best: { id: number; name: string; score: number; query: string } | null;
+    } = { best: null };
+
+    const consider = (candidateName: string, candidateId: number, query: string) => {
+      const score = Math.max(
+        titleMatchScore(title, candidateName),
+        titleMatchScore(query, candidateName)
       );
+      if (!state.best || score > state.best.score) {
+        state.best = { id: candidateId, name: candidateName, score, query };
+      }
+    };
 
-      const items = data?.items || [];
-      let best: { id: number; name: string; score: number } | null = null;
-      for (const item of items) {
-        if (item.type && item.type !== 'app') continue;
-        if (!item.id || !item.name) continue;
-        const score = titleMatchScore(q, item.name);
-        if (!best || score > best.score) {
-          best = { id: item.id, name: item.name, score };
+    for (const term of terms) {
+      const community = await getJsonLoose<Array<{ appid?: number; id?: number; name?: string }>>(
+        `https://steamcommunity.com/actions/SearchApps/${encodeURIComponent(term)}`
+      );
+      if (Array.isArray(community)) {
+        for (const row of community) {
+          const id = Number(row?.appid ?? row?.id);
+          const name = String(row?.name || '').trim();
+          if (!id || !name) continue;
+          consider(name, id, term);
         }
       }
 
-      if (!best || best.score < 100) {
-        return { appid: null, matchedName: null };
+      if (state.best && state.best.score >= 800) break;
+
+      const store = await getJsonLoose<{
+        items?: Array<{ type?: string; name?: string; id?: number }>;
+      }>(
+        `${STEAM_STORE_BASE}/api/storesearch/?${new URLSearchParams({
+          term,
+          l: 'english',
+          cc: 'US',
+        }).toString()}`
+      );
+      for (const item of store?.items || []) {
+        if (item.type && item.type !== 'app') continue;
+        const id = Number(item.id);
+        const name = String(item.name || '').trim();
+        if (!id || !name) continue;
+        consider(name, id, term);
       }
 
-      return { appid: best.id, matchedName: best.name };
-    } catch {
-      return { appid: null, matchedName: null };
+      if (state.best && state.best.score >= 800) break;
     }
+
+    const best = state.best;
+    // 300 ≈ overlap forte; 600 = substring; 800+ = prefix/exato
+    if (!best || best.score < 300) {
+      return {
+        appid: null,
+        matchedName: best?.name ?? null,
+        score: best?.score,
+        query: best?.query ?? terms[0],
+      };
+    }
+
+    return {
+      appid: best.id,
+      matchedName: best.name,
+      score: best.score,
+      query: best.query,
+    };
   }
 
   /**
@@ -125,7 +225,8 @@ export class SteamAPI {
     if (!Array.isArray(items) || items.length === 0) {
       return {
         games: [],
-        warning: 'Steam wishlist vazia ou privada — em Privacidade do perfil, a wishlist deve ser pública',
+        warning:
+          'Steam wishlist vazia ou privada — em Privacidade do perfil, a wishlist deve ser pública',
       };
     }
 

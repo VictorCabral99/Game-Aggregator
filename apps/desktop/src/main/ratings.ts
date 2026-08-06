@@ -1,4 +1,5 @@
-import { RAWGAPI, RatingAggregator, SteamAPI } from '@gagg/providers-meta';
+// import { RAWGAPI } from '@gagg/providers-meta'; // pausado — timeout + match ruim
+import { RatingAggregator, SteamAPI } from '@gagg/providers-meta';
 import {
   getCacheRow,
   getLibraryRepository,
@@ -10,13 +11,14 @@ import {
 import type { EnrichEvent, RatingsSummary, RatingsSyncResult } from '../shared/api';
 import type { Game } from './db/games';
 import { downloadCoverForGame } from './ipc/cover';
+import { createRatingsFileLog, type RatingsFileLog } from './ratings-log';
 
-const RAWG_TTL_MS = 7 * 24 * 3600 * 1000;
-const CONCURRENCY = 4;
+const RATINGS_TTL_MS = 7 * 24 * 3600 * 1000;
+const CONCURRENCY = 3;
 
-function rawgKey(): string {
-  return process.env.RAWG_API_KEY ?? getSetting('keys.rawg') ?? '';
-}
+// function rawgKey(): string {
+//   return process.env.RAWG_API_KEY ?? getSetting('keys.rawg') ?? '';
+// }
 
 function steamAppIdKey(gameId: string): string {
   return `steam.appid.${gameId}`;
@@ -59,20 +61,21 @@ function resolveSteamAppIdForGame(game: Game): string | null {
   return getResolvedSteamAppId(game.id);
 }
 
-/** Índice em memória a partir de 1 SELECT em ratings. */
-function buildRatingsIndex(freshMs: number): {
-  useful: Set<string>;
-  fresh: Set<string>;
-  seen: Set<string>;
+/** Índice: nota Steam útil + fresca. */
+function buildSteamRatingsIndex(freshMs: number): {
+  usefulSteam: Set<string>;
+  freshSteam: Set<string>;
+  seenSteam: Set<string>;
 } {
-  const useful = new Set<string>();
-  const fresh = new Set<string>();
-  const seen = new Set<string>();
+  const usefulSteam = new Set<string>();
+  const freshSteam = new Set<string>();
+  const seenSteam = new Set<string>();
   const latest = new Map<string, number>();
 
   for (const r of getRatingsRepository().listAll()) {
-    seen.add(r.gameId);
-    if (r.rating != null && r.rating > 0) useful.add(r.gameId);
+    if (r.source !== 'steam') continue;
+    seenSteam.add(r.gameId);
+    if (r.rating != null && r.rating > 0) usefulSteam.add(r.gameId);
     if (!r.lastUpdated) continue;
     const t = new Date(r.lastUpdated).getTime();
     if (Number.isNaN(t)) continue;
@@ -81,48 +84,41 @@ function buildRatingsIndex(freshMs: number): {
   }
   const now = Date.now();
   for (const [gameId, t] of latest) {
-    if (now - t < freshMs) fresh.add(gameId);
+    if (now - t < freshMs) freshSteam.add(gameId);
   }
-  return { useful, fresh, seen };
+  return { usefulSteam, freshSteam, seenSteam };
 }
 
-/**
- * Precisa enriquecer se:
- * - falta capa
- * - nunca tentou nota
- * - não-retro sem Steam AppID (e ainda não tentou buscar)
- * - notas com mais de 7 dias
- */
-function needsWork(
+function needsSteamWork(
   game: Game,
   force: boolean,
-  index?: { useful: Set<string>; fresh: Set<string>; seen: Set<string> }
-): { any: boolean; cover: boolean; ratings: boolean; findSteamId: boolean; priority: number } {
-  const cover = needsCoverDownload(game);
+  index?: ReturnType<typeof buildSteamRatingsIndex>
+): { any: boolean; findSteamId: boolean; ratings: boolean; priority: number } {
+  if (isRetroOnly(game)) {
+    return { any: false, findSteamId: false, ratings: false, priority: 9 };
+  }
   if (force) {
     return {
       any: true,
-      cover,
+      findSteamId: true,
       ratings: true,
-      findSteamId: !isRetroOnly(game),
-      priority: cover ? 0 : 1,
+      priority: resolveSteamAppIdForGame(game) ? 1 : 0,
     };
   }
 
-  const neverTried = index ? !index.seen.has(game.id) : true;
-  const missingUseful = index ? !index.useful.has(game.id) : true;
-  const stale = index ? index.seen.has(game.id) && !index.fresh.has(game.id) : true;
-  // Sem nota útil: só busca se nunca tentou; se tentou e falhou, espera TTL
+  const hasAppId = Boolean(resolveSteamAppIdForGame(game));
+  const findSteamId = !hasAppId && !isSteamLookupDone(game.id);
+  const neverTried = index ? !index.seenSteam.has(game.id) : true;
+  const missingUseful = index ? !index.usefulSteam.has(game.id) : true;
+  const stale = index ? index.seenSteam.has(game.id) && !index.freshSteam.has(game.id) : true;
+  // Sem nota útil: rebusca só se nunca tentou OU stale; miss recente (null fresco) não refila
   const ratings = neverTried || (missingUseful && stale) || (!missingUseful && stale);
-  const findSteamId =
-    !isRetroOnly(game) && !resolveSteamAppIdForGame(game) && !isSteamLookupDone(game.id);
-  const any = cover || ratings || findSteamId;
+  const any = ratings || findSteamId;
   let priority = 9;
-  if (cover) priority = 0;
-  else if (neverTried) priority = 1;
+  if (neverTried) priority = 1;
   else if (findSteamId) priority = 2;
   else if (stale) priority = 3;
-  return { any, cover, ratings, findSteamId, priority };
+  return { any, findSteamId, ratings, priority };
 }
 
 async function cachedGetJson<T>(key: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
@@ -149,108 +145,107 @@ async function mapPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise
   return results;
 }
 
-/** Resolve e persiste Steam AppID (não-retro). Retorna o appid se houver. */
-async function ensureSteamAppId(game: Game, findSteamId: boolean): Promise<string | null> {
+async function ensureSteamAppId(
+  game: Game,
+  findSteamId: boolean,
+  log?: RatingsFileLog
+): Promise<string | null> {
   if (isRetroOnly(game)) return null;
   let appid = resolveSteamAppIdForGame(game);
-  if (appid || !findSteamId) return appid;
+  if (appid || !findSteamId) {
+    if (appid) log?.line(`steam · ${game.title} · appid conhecido ${appid}`);
+    return appid;
+  }
 
   const steam = new SteamAPI();
   const title = game.title;
+  const started = Date.now();
   try {
     const found = await cachedGetJson(
       `steam:find:${title.toLowerCase().trim()}`,
-      RAWG_TTL_MS,
+      RATINGS_TTL_MS,
       async () => steam.findAppIdByTitle(title)
     );
+    const ms = Date.now() - started;
     if (found.appid) {
       appid = String(found.appid);
       setResolvedSteamAppId(game.id, appid);
+      log?.line(
+        `steam · ${title} · lookup HIT ${appid} · match=${found.matchedName || '-'} · score=${found.score ?? '-'} · q="${found.query || title}" · ${ms}ms`
+      );
+    } else {
+      log?.line(
+        `steam · ${title} · lookup MISS · match=${found.matchedName || '-'} · score=${found.score ?? '-'} · q="${found.query || title}" · ${ms}ms`
+      );
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    log?.line(
+      `steam · ${title} · lookup ERROR · ${err instanceof Error ? err.message : String(err)}`
+    );
   }
   markSteamLookupDone(game.id);
   return appid;
 }
 
-async function enrichGameRatings(
+/** Steam % only — RAWG/Metacritic comentados. */
+async function enrichSteamRating(
   game: Game,
-  findSteamId: boolean
-): Promise<{ skipped: boolean }> {
-  // RAWG/Metacritic pausados (timeout + match ruim) — apenas Steam % ativo
-  // const key = rawgKey();
-  // if (!key) return { skipped: true };
+  findSteamId: boolean,
+  log?: RatingsFileLog
+): Promise<{ skipped: boolean; gotScore: boolean }> {
+  if (isRetroOnly(game)) return { skipped: true, gotScore: false };
 
   const ratingsRepo = getRatingsRepository();
-  // const rawg = new RAWGAPI(key);
   const steam = new SteamAPI();
-  const title = game.title;
 
   try {
-    // RAWG/Metacritic desabilitado:
-    // const rawgRes = await cachedGetJson(
-    //   `rawg:title:${title.toLowerCase().trim()}`,
-    //   RAWG_TTL_MS,
-    //   async () => rawg.resolveRatingsForTitle(title)
-    // );
+    // RAWG/Metacritic pausados:
+    // const key = rawgKey();
+    // const rawg = new RAWGAPI(key);
+    // const rawgRes = await cachedGetJson(`rawg:title:...`, ..., () => rawg.resolveRatingsForTitle(title));
 
-    const appid = await ensureSteamAppId(game, findSteamId);
+    const appid = await ensureSteamAppId(game, findSteamId, log);
     let steamPercent: number | null = null;
     let steamCount: number | null = null;
 
-    if (appid && !isRetroOnly(game)) {
+    if (appid) {
+      const started = Date.now();
       const score = await steam.getReviewScore(appid);
+      const ms = Date.now() - started;
       steamPercent = score.percent;
       steamCount = score.totalReviews > 0 ? score.totalReviews : null;
+      log?.line(
+        `steam · ${game.title} · review ${steamPercent ?? 'null'}% · reviews=${steamCount ?? 0} · appid=${appid} · ${ms}ms`
+      );
+    } else {
+      log?.line(`steam · ${game.title} · sem appid — sem review`);
     }
 
-    // RAWG/Metacritic upserts comentados:
-    // ratingsRepo.upsert({
-    //   gameId: game.id,
-    //   source: 'rawg',
-    //   rating: rawgRes.rawg,
-    //   reviewCount: null,
-    //   matchedName: rawgRes.matchedName,
-    // });
-    // ratingsRepo.upsert({
-    //   gameId: game.id,
-    //   source: 'metacritic',
-    //   rating: rawgRes.metacritic,
-    //   reviewCount: null,
-    //   matchedName: rawgRes.matchedName,
-    // });
-    if (!isRetroOnly(game)) {
-      ratingsRepo.upsert({
-        gameId: game.id,
-        source: 'steam',
-        rating: steamPercent,
-        reviewCount: steamCount,
-        matchedName: appid ? `Steam App ${appid}` : null,
-      });
-    }
-  } catch {
-    // if (source === 'steam' && isRetroOnly(game)) continue;
-    // for (const source of ['rawg', 'metacritic', 'steam'] as const) {
-    //   ratingsRepo.upsert({
-    //     gameId: game.id,
-    //     source,
-    //     rating: null,
-    //     reviewCount: null,
-    //     matchedName: null,
-    //   });
-    // }
-    if (!isRetroOnly(game)) {
-      ratingsRepo.upsert({
-        gameId: game.id,
-        source: 'steam',
-        rating: null,
-        reviewCount: null,
-        matchedName: null,
-      });
-    }
+    ratingsRepo.upsert({
+      gameId: game.id,
+      source: 'steam',
+      rating: steamPercent,
+      reviewCount: steamCount,
+      matchedName: appid ? `Steam App ${appid}` : null,
+    });
+
+    // ratingsRepo.upsert({ gameId, source: 'rawg', ... });
+    // ratingsRepo.upsert({ gameId, source: 'metacritic', ... });
+
+    return { skipped: false, gotScore: steamPercent != null && steamPercent > 0 };
+  } catch (err) {
+    log?.line(
+      `steam · ${game.title} · ERROR · ${err instanceof Error ? err.message : String(err)}`
+    );
+    ratingsRepo.upsert({
+      gameId: game.id,
+      source: 'steam',
+      rating: null,
+      reviewCount: null,
+      matchedName: null,
+    });
+    return { skipped: false, gotScore: false };
   }
-  return { skipped: false };
 }
 
 export async function syncAllRatings(): Promise<RatingsSyncResult> {
@@ -277,7 +272,8 @@ async function processRetroCovers(
   games: Game[],
   send: (event: EnrichEvent) => void,
   totals: { index: number; total: number },
-  repo: ReturnType<typeof getLibraryRepository>
+  repo: ReturnType<typeof getLibraryRepository>,
+  log?: RatingsFileLog
 ): Promise<number> {
   let covers = 0;
   await mapPool(games, CONCURRENCY, async (game) => {
@@ -290,6 +286,7 @@ async function processRetroCovers(
     }
     const fresh = repo.get(game.id);
     const current = ++totals.index;
+    log?.line(`cover · ${game.title} · ${coverOk ? 'OK' : 'MISS'}`);
     send({
       type: 'item',
       index: current,
@@ -305,45 +302,25 @@ async function processRetroCovers(
   return covers;
 }
 
-async function processRatingsOnly(
-  items: Array<{ game: Game; work: ReturnType<typeof needsWork> }>,
+async function processSteamRatings(
+  items: Array<{ game: Game; work: ReturnType<typeof needsSteamWork> }>,
   send: (event: EnrichEvent) => void,
   totals: { index: number; total: number },
-  counters: { updated: number; skippedFresh: number },
-  repo: ReturnType<typeof getLibraryRepository>
+  counters: { updated: number; skippedFresh: number; misses: number },
+  repo: ReturnType<typeof getLibraryRepository>,
+  log?: RatingsFileLog
 ): Promise<void> {
   await mapPool(items, CONCURRENCY, async ({ game, work }) => {
-    if (work.findSteamId) {
-      await ensureSteamAppId(game, true);
-    }
-
     let skipped = true;
-    if (work.ratings) {
-      const result = await enrichGameRatings(game, work.findSteamId);
+    let gotScore = false;
+
+    if (work.ratings || work.findSteamId) {
+      const result = await enrichSteamRating(game, work.findSteamId || work.ratings, log);
       skipped = result.skipped;
-      if (skipped) counters.skippedFresh += 1;
-      else counters.updated += 1;
-    } else if (work.findSteamId) {
-      const appid = await ensureSteamAppId(game, true);
-      if (appid) {
-        try {
-          const steam = new SteamAPI();
-          const score = await steam.getReviewScore(appid);
-          getRatingsRepository().upsert({
-            gameId: game.id,
-            source: 'steam',
-            rating: score.percent,
-            reviewCount: score.totalReviews > 0 ? score.totalReviews : null,
-            matchedName: `Steam App ${appid}`,
-          });
-          counters.updated += 1;
-          skipped = false;
-        } catch {
-          counters.skippedFresh += 1;
-        }
-      } else {
-        counters.skippedFresh += 1;
-      }
+      gotScore = result.gotScore;
+      if (gotScore) counters.updated += 1;
+      else if (skipped) counters.skippedFresh += 1;
+      else counters.misses += 1;
     } else {
       counters.skippedFresh += 1;
     }
@@ -355,25 +332,25 @@ async function processRatingsOnly(
       index: current,
       total: totals.total,
       gameId: game.id,
-      title: `Nota · ${game.title}`,
+      title: `Steam · ${game.title}`,
       coverOk: Boolean(fresh?.coverPath || fresh?.coverUrl),
       coverPath: fresh?.coverPath ?? null,
       summary: getRatingsRepository().summaryForGame(game.id),
-      skipped,
+      skipped: skipped || !gotScore,
     });
   });
 }
 
 /**
- * Ordem fixa:
+ * Ordem:
  * 1) capas retro (Libretro)
- * 2) notas (retro primeiro, depois lojas) + Steam AppID
+ * 2) notas Steam % (AppID lookup + reviews) — RAWG/Meta pausados
  */
 export async function streamEnrichLibrary(
   send: (event: EnrichEvent) => void,
   opts?: { gameIds?: string[]; force?: boolean; maxGames?: number }
 ): Promise<RatingsSyncResult & { covers: number }> {
-  const key = rawgKey();
+  const log = await createRatingsFileLog();
   const repo = getLibraryRepository();
   let games = repo.list();
   if (opts?.gameIds?.length) {
@@ -382,23 +359,23 @@ export async function streamEnrichLibrary(
   }
 
   const force = Boolean(opts?.force);
-  const index = force ? undefined : buildRatingsIndex(RAWG_TTL_MS);
+  const index = force ? undefined : buildSteamRatingsIndex(RATINGS_TTL_MS);
   const maxGames = opts?.maxGames && opts.maxGames > 0 ? opts.maxGames : undefined;
 
-  // Fase 1 — todas as capas retro faltantes (antes de qualquer nota)
   let coverQueue = games.filter((g) => needsCoverDownload(g)).sort(sortRetroFirst);
   if (maxGames && coverQueue.length > maxGames) {
     coverQueue = coverQueue.slice(0, maxGames);
   }
 
-  // Fase 2 — notas / steam id (retro primeiro)
   let ratingItems = games
-    .map((g) => ({ game: g, work: needsWork(g, force, index) }))
-    .filter((x) => x.work.ratings || x.work.findSteamId)
-    .sort((a, b) => sortRetroFirst(a.game, b.game));
+    .map((g) => ({ game: g, work: needsSteamWork(g, force, index) }))
+    .filter((x) => x.work.any)
+    .sort((a, b) => {
+      if (a.work.priority !== b.work.priority) return a.work.priority - b.work.priority;
+      return sortRetroFirst(a.game, b.game);
+    });
 
   if (maxGames) {
-    // reserva espaço: capas já contam; notas no restante
     const ratingBudget = Math.max(0, maxGames - coverQueue.length);
     if (ratingItems.length > ratingBudget) {
       ratingItems = ratingItems.slice(0, ratingBudget);
@@ -406,58 +383,52 @@ export async function streamEnrichLibrary(
   }
 
   const total = coverQueue.length + ratingItems.length;
+  const skippedFresh = games.length - coverQueue.length - ratingItems.length;
+
+  log.line(
+    `start · covers=${coverQueue.length} steamQueue=${ratingItems.length} skippedFresh≈${Math.max(0, skippedFresh)} force=${force} maxGames=${maxGames ?? '∞'} · log=${log.filePath}`
+  );
+  await log.flush();
+
   send({ type: 'start', total });
 
   if (total === 0) {
-    send({ type: 'done', updated: 0, covers: 0, skippedFresh: 0, noKey: !key });
-    return { attempted: 0, updated: 0, skippedFresh: 0, noKey: !key, covers: 0 };
+    log.line(`done · nada pendente — ${games.length} jogos na lib`);
+    await log.flush();
+    send({ type: 'done', updated: 0, covers: 0, skippedFresh: games.length, noKey: false });
+    return { attempted: 0, updated: 0, skippedFresh: games.length, noKey: false, covers: 0 };
   }
 
   const totals = { index: 0, total };
   let covers = 0;
 
   if (coverQueue.length > 0) {
-    covers = await processRetroCovers(coverQueue, send, totals, repo);
+    covers = await processRetroCovers(coverQueue, send, totals, repo, log);
   }
 
-  const counters = { updated: 0, skippedFresh: 0 };
+  const counters = { updated: 0, skippedFresh: 0, misses: 0 };
   if (ratingItems.length > 0) {
-    // RAWG/Metacritic pausados — apenas Steam % ativo
-    // if (!key) {
-    //   // sem RAWG: marca restantes como skipped (capas já feitas)
-    //   for (const { game } of ratingItems) {
-    //     const current = ++totals.index;
-    //     send({
-    //       type: 'item',
-    //       index: current,
-    //       total,
-    //       gameId: game.id,
-    //       title: `Nota · ${game.title}`,
-    //       coverOk: Boolean(game.coverPath || game.coverUrl),
-    //       coverPath: game.coverPath ?? null,
-    //       summary: getRatingsRepository().summaryForGame(game.id),
-    //       skipped: true,
-    //     });
-    //     counters.skippedFresh += 1;
-    //   }
-    // } else {
-      await processRatingsOnly(ratingItems, send, totals, counters, repo);
-    // }
+    await processSteamRatings(ratingItems, send, totals, counters, repo, log);
   }
+
+  log.line(
+    `done · updated=${counters.updated} misses=${counters.misses} covers=${covers} skipped=${counters.skippedFresh} attempted=${total}`
+  );
+  await log.flush();
 
   send({
     type: 'done',
     updated: counters.updated,
     covers,
     skippedFresh: counters.skippedFresh,
-    noKey: !key,
+    noKey: false, // Steam-only — não exige RAWG
   });
 
   return {
     attempted: total,
     updated: counters.updated,
     skippedFresh: counters.skippedFresh,
-    noKey: !key,
+    noKey: false,
     covers,
   };
 }

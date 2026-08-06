@@ -601,10 +601,10 @@ Perfis multi-device (Fase 8), voice, temas complexos.
 Ordenar por nota; prateleira “Esquecidos bem avaliados” mostra jogo 85+ com 0h; offline após sync.
 
 ### Pré-requisitos
-Fase 3 (canonical). Keys RAWG (+ Steam API se reviews %). Reusar `src/lib/rawg-api.ts`, `aggregation.ts`.
+Fase 3 (canonical). **Steam Store (público, sem key)** para % reviews. RAWG key opcional — **pausado temporariamente**. Reusar `@gagg/providers-meta`.
 
 ### Fora de escopo
-Wishlist/deals, reviews textuais UGC.
+Wishlist/deals, reviews textuais UGC. **RAWG/Metacritic fetch** (comentado até API estabilizar).
 
 ### Breakdown
 
@@ -612,14 +612,15 @@ Wishlist/deals, reviews textuais UGC.
 |----|--------|--------|
 | P6-01 | Mover/adaptar clients RAWG/Metacritic → `packages/providers-meta` | ✅ `@gagg/providers-meta` (RAWG + Steam + agregador) com fetch puro |
 | P6-02 | Tabelas `ratings` + `api_cache` | ✅ migration v6 + `RatingsRepository` |
-| P6-03 | Job batch enrich (concurrency 2–3, TTL 7d) | ✅ `syncAllRatings` (pool 3, TTL 7d, cache `api_cache`) |
-| P6-04 | Steam percentPositive (store API ou scrape estável — preferir API) | ✅ `/appreviews/{id}` (store, sem key) + `findAppIdByTitle` |
+| P6-03 | Job batch enrich (concurrency 2–3, TTL 7d) | ✅ Steam-only batch + log `userData/logs/ratings-*.log` |
+| P6-04 | Steam percentPositive (store API) + AppID lookup | ✅ `/appreviews` + SearchApps/storesearch + variantes (threshold 300) |
 | P6-05 | UI ficha: scores + breakdown | ✅ `GameDetailModal` com notas por fonte + stale indicator |
-| P6-06 | Sort: note, name, playtime, size, requirements tier | ✅ sort por nome/nota/recentes na toolbar |
+| P6-06 | Sort: note, name, playtime, size, requirements tier | ✅ sort nome/Steam%/recentes (RAWG/Meta sort comentado) |
 | P6-07 | Filtros: nota≥80, never played, not played 6m | ✅ chip "Nota ≥ 80" + sort por nota |
 | P6-08 | Shelf “Esquecidos bem avaliados” (score≥80 & playtime≤60min) | ✅ shelf com score≥80 e nunca jogado |
 | P6-09 | Setting esconder notas | ✅ `ui.hideRatings` no SettingsModal |
 | P6-10 | Indicador “notas de DD/MM” stale | ✅ badge "antigas" no header + indicador no modal |
+| P6-11 | Log de enrich (lookup HIT/MISS + review %) | ✅ console `[ratings]` + arquivo em userData/logs |
 
 ### Script de teste
 

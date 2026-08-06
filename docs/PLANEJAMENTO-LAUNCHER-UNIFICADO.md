@@ -769,11 +769,13 @@ O launcher parece e se comporta como um shell de console no PC/TV.
 Fazer o usuário **redescobrir** jogos que já possui e são bem avaliados, mas esquecidos.
 
 #### Funcionalidades incluídas
-- Integração ratings: RAWG, Metacritic (via detalhes RAWG), Steam review % (Steam Store/API)
-- Exibir nota composta + breakdown por fonte na ficha do jogo
+- Integração ratings: **Steam review % (ativo)**; RAWG + Metacritic via RAWG **pausados temporariamente** (api.rawg.io 522 / match frágil)
+- Exibir nota composta + breakdown por fonte na ficha do jogo (hoje prioriza Steam)
 - Exibir % positivas estilo Steam quando disponível
+- Lookup de Steam AppID: SearchApps + storesearch + variantes de título (threshold 300)
+- Log de batch em `userData/logs/ratings-*.log` (+ console `[ratings]`)
 - Ordenação da biblioteca por:
-  - Nota (composta / por fonte)
+  - Nota (Steam % / composta)
   - Nome
   - Tempo de jogo (se disponível)
   - Tamanho em disco
@@ -798,8 +800,9 @@ Fazer o usuário **redescobrir** jogos que já possui e são bem avaliados, mas 
 - Canonical games da Fase 3 (senão ratings duplicam por source)
 
 #### Riscos e limitações
-- Metacritic nem sempre disponível via RAWG
-- Rate limits no backfill inicial
+- **RAWG/Metacritic pausados** até API estabilizar — só Steam % no enrich
+- Metacritic nem sempre disponível via RAWG (quando reativado)
+- Rate limits no backfill inicial (Steam Store / SearchApps)
 - Requisitos de sistema são dados sujos/incompletos — ordenação por requirements é best-effort
 - Spoiler de score: setting “esconder notas”
 
