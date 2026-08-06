@@ -107,9 +107,9 @@ export function ensureFocus(root: HTMLElement = getPadRoot()): HTMLElement | nul
   if (items.length === 0) return null;
   const active = document.activeElement as HTMLElement | null;
   if (active && root.contains(active) && items.includes(active)) return active;
-  const first = items[0];
-  first.focus({ preventScroll: false });
-  return first;
+  const preferred = items.find((el) => el.hasAttribute('data-pad-prefer')) ?? items[0];
+  preferred.focus({ preventScroll: true });
+  return preferred;
 }
 
 export function activateFocused(): boolean {

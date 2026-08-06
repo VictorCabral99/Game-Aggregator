@@ -11,11 +11,15 @@ import {
   setLocalGamesRoot,
 } from '../local-games';
 import { withSteamAppId, withSteamAppIds } from '../steam-appid';
+import { purgeNonGameSteamEntries } from './providers';
 
 export function registerLibraryHandlers(): void {
   const repo = () => getLibraryRepository();
 
-  ipcMain.handle('library:list', () => withSteamAppIds(repo().list()));
+  ipcMain.handle('library:list', () => {
+    purgeNonGameSteamEntries();
+    return withSteamAppIds(repo().list());
+  });
 
   ipcMain.handle('library:local-setup-get', () => getLocalGamesSetup());
 

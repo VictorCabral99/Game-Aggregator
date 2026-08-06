@@ -28,7 +28,8 @@ com UX pensada para controle / TV.
 | B | Voltar / fechar |
 | X | Abrir ficha do foco |
 | Y | Focar busca |
-| Start | Configurações |
+| L1 / R1 | Filtro anterior / próximo (Todos, Steam, Epic…) |
+| Start | Abrir / fechar menu lateral |
 | Select | Emulação |
 
 Aperte qualquer botão do controle com a janela em foco para ativar a navegação

@@ -27,8 +27,10 @@ export type GamepadAction =
   | 'back'
   | 'open'
   | 'search'
-  | 'settings'
-  | 'emulation';
+  | 'menu'
+  | 'emulation'
+  | 'filterPrev'
+  | 'filterNext';
 
 const AXIS_X = 0;
 const AXIS_Y = 1;
@@ -244,12 +246,14 @@ export function useGamepadNav({
       if (dir) fireNav(dir, now);
       else held.dir = null;
 
-      // Standard: 0=A, 1=B, 2=X, 3=Y, 8=Select, 9=Start
+      // Standard: 0=A, 1=B, 2=X, 3=Y, 4=LB/L1, 5=RB/R1, 8=Select, 9=Start
       if (edgePress(pad, 0)) opts.current.onAction?.('confirm');
       if (edgePress(pad, 1)) opts.current.onAction?.('back');
       if (edgePress(pad, 2)) opts.current.onAction?.('open');
       if (edgePress(pad, 3)) opts.current.onAction?.('search');
-      if (edgePress(pad, 9)) opts.current.onAction?.('settings');
+      if (edgePress(pad, 4)) opts.current.onAction?.('filterPrev');
+      if (edgePress(pad, 5)) opts.current.onAction?.('filterNext');
+      if (edgePress(pad, 9)) opts.current.onAction?.('menu');
       if (edgePress(pad, 8)) opts.current.onAction?.('emulation');
 
       if (opts.current.tvMode && Date.now() - s.lastCursorHide > CURSOR_HIDE_MS) {

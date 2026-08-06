@@ -1,6 +1,7 @@
 import { Notification } from 'electron';
 import { ITADAPI, SteamAPI } from '@gagg/providers-meta';
 import { getCacheRow, getSetting, getWishlistRepository, setSetting, upsertCache } from './db';
+import { resolveSteamApiKey, resolveSteamId } from './providers/steam-library';
 import type {
   ITADSearchResult,
   SteamWishlistImportResult,
@@ -165,18 +166,21 @@ export async function searchItadGames(query: string): Promise<ITADSearchResult[]
 }
 
 export async function importSteamWishlist(): Promise<SteamWishlistImportResult> {
-  const steamKey = process.env.STEAM_API_KEY ?? getSetting('keys.steam') ?? '';
-  const steamId = getSetting('steam.id') ?? '';
+  const steamId = resolveSteamId();
+  const steamKey = resolveSteamApiKey();
 
-  if (!steamKey) {
-    return { imported: 0, skipped: 0, error: 'STEAM_API_KEY não configurada' };
-  }
   if (!steamId) {
-    return { imported: 0, skipped: 0, error: 'Steam ID (steam64) não configurado em Configurações' };
+    return {
+      imported: 0,
+      skipped: 0,
+      error: 'Steam não conectada — conecte em Lojas ou informe o Steam ID em Configurações',
+    };
   }
 
   const steam = new SteamAPI();
+  // GetWishlist só exige steamid; key vazia é ok (biblioteca owned é que precisa de key).
   const res = await steam.getWishlist(steamId, steamKey);
+
   if (res.error) return { imported: 0, skipped: 0, error: res.error };
   if (res.warning) return { imported: 0, skipped: 0, warning: res.warning };
 
@@ -191,9 +195,13 @@ export async function importSteamWishlist(): Promise<SteamWishlistImportResult> 
     try {
       let deal: Awaited<ReturnType<ITADAPI['getDealForGame']>> = null;
       if (itad) {
-        deal = await cachedGetJson(`itad:steam-app:${game.appid}`, LOOKUP_TTL_MS, () =>
-          itad.getDealForGame({ appid: game.appid })
-        );
+        try {
+          deal = await cachedGetJson(`itad:steam-app:${game.appid}`, LOOKUP_TTL_MS, () =>
+            itad.getDealForGame({ appid: game.appid })
+          );
+        } catch {
+          // ITAD fora / rate-limit: importa o título mesmo sem preço
+        }
       }
       if (deal?.itadId && repo.has(deal.itadId)) {
         skipped += 1;

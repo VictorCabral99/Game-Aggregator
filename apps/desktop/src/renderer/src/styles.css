@@ -83,6 +83,7 @@ body {
   display: flex;
   height: 100%;
   min-height: 0;
+  position: relative;
 }
 
 .app-layout--authed .shell {
@@ -92,15 +93,61 @@ body {
   padding-left: clamp(16px, 2.5vw, 28px);
 }
 
+.side-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.55);
+  cursor: pointer;
+}
+
 .side-nav {
-  width: 220px;
-  flex-shrink: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 80;
+  width: min(260px, 86vw);
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 20px 14px;
   border-right: 1px solid var(--border);
   background: linear-gradient(180deg, #12151c 0%, #0f1115 100%);
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45);
+  transform: translateX(-105%);
+  transition: transform 0.2s ease;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.side-nav--open {
+  transform: translateX(0);
+  pointer-events: auto;
+  visibility: visible;
+}
+
+.header__menu-btn {
+  flex-shrink: 0;
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #151922;
+  color: var(--text);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.header__menu-btn:hover,
+.header__menu-btn[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: var(--accent-soft);
 }
 
 .side-nav__brand {
@@ -640,11 +687,24 @@ body.gamepad-active .recent {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
+  z-index: 100;
+  padding: max(16px, 3vh) 16px;
+}
+
+body:has(.modal-backdrop) {
+  overflow: hidden;
+}
+
+/* Esconde seleção da grade atrás da ficha */
+body:has(.modal-backdrop) .card--selected,
+body:has(.modal-backdrop) .card:focus,
+body:has(.modal-backdrop) .card:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .modal {
@@ -660,12 +720,39 @@ body.gamepad-active .recent {
 .modal--detail {
   display: flex;
   flex-direction: column;
+  gap: 0;
+  width: min(440px, 94vw);
+  max-height: min(88vh, 820px);
+  padding: 0;
+  overflow: hidden;
+}
+
+.modal--detail .modal__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 12px;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+}
+
+.modal--detail .modal__chrome {
+  flex-shrink: 0;
+  padding: 12px 18px 14px;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 92%, #000 8%);
 }
 
 .modal h2 {
   margin: 0 0 8px;
   font-size: 1.2rem;
+}
+
+.modal--detail h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.3;
 }
 
 .modal__hero {
@@ -674,9 +761,27 @@ body.gamepad-active .recent {
   border-radius: 10px;
 }
 
+.modal--detail .modal__hero {
+  max-height: 148px;
+  margin: 0;
+  flex-shrink: 0;
+}
+
 .modal__hero img {
   width: 100%;
   object-fit: cover;
+}
+
+.modal--detail .modal__hero img {
+  height: 148px;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.hint--compact {
+  margin: 6px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .modal__meta {
@@ -703,6 +808,60 @@ body.gamepad-active .recent {
   gap: 10px;
   flex-wrap: wrap;
   margin-top: 4px;
+}
+
+.modal__footer-danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.modal--detail .modal__actions {
+  margin-top: 0;
+}
+
+.modal--detail .modal__summary {
+  font-size: 0.85rem;
+}
+
+
+.modal__footer-danger-hint {
+  flex: 1 1 12rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.modal__remove-link {
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: color-mix(in srgb, var(--muted) 85%, var(--danger) 15%);
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: transparent;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.modal__remove-link:hover,
+.modal__remove-link:focus-visible {
+  opacity: 0.95;
+  color: var(--danger);
+  text-decoration-color: currentColor;
+}
+
+button.ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
 }
 
 /* Sources (Fase 3) */
@@ -740,11 +899,18 @@ body.gamepad-active .recent {
 .source-row__label {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   min-width: 0;
+  flex: 1 1 auto;
+}
+
+.source-row__name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
+  max-width: min(100%, 220px);
 }
 
 .source-row--missing {
@@ -1597,7 +1763,26 @@ button.linkish:hover {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: center;
   margin-bottom: 14px;
+}
+
+.wishlist__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.wishlist__sort select {
+  min-width: 160px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #151922;
+  color: var(--text);
 }
 
 .wishlist__add {
@@ -1700,6 +1885,22 @@ button.linkish:hover {
 .wishlist__shop {
   color: var(--muted);
   font-size: 0.75rem;
+}
+
+.wishlist__hist-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #0f1410;
+  background: #7dcea0;
+}
+
+.wishlist__row--hist-low {
+  border-color: color-mix(in srgb, #7dcea0 45%, var(--border));
+  background: color-mix(in srgb, #7dcea0 8%, transparent);
 }
 
 .wishlist__price {

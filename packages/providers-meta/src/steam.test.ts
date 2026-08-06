@@ -149,3 +149,55 @@ describe('SteamAPI.findAppIdByTitle', () => {
     expect(result.appid).toBe(504230);
   });
 });
+
+describe('SteamAPI.getWishlist', () => {
+  const api = new SteamAPI();
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('chama GetWishlist só com steamid quando não há key', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        expect(url).toContain('IWishlistService/GetWishlist');
+        expect(url).toContain('steamid=76561198000000000');
+        expect(url).not.toContain('key=');
+        return {
+          ok: true,
+          json: async () => ({
+            response: { items: [{ appid: 620, priority: 0, date_added: 1 }] },
+          }),
+        } as Response;
+      })
+    );
+
+    // appdetails enrichment
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes('GetWishlist')) {
+        return {
+          ok: true,
+          json: async () => ({
+            response: { items: [{ appid: 620, priority: 0, date_added: 1 }] },
+          }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          '620': { success: true, data: { name: 'Portal 2' } },
+        }),
+      } as Response;
+    });
+
+    const res = await api.getWishlist('76561198000000000');
+    expect(res.error).toBeUndefined();
+    expect(res.games).toHaveLength(1);
+    expect(res.games[0]?.name).toBe('Portal 2');
+    expect(res.games[0]?.appid).toBe(620);
+  });
+});

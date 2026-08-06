@@ -19,6 +19,7 @@ import {
   resolveSteamApiKey,
   resolveSteamId,
 } from '../providers/steam-library';
+import { isNonGameSteam } from '../providers/steam-filters';
 
 const STORE_FACTORIES: Array<() => SidecarProvider> = [
   () => getEpicProvider(),
@@ -143,16 +144,39 @@ export function scanSteam() {
 
     const steamId = resolveSteamId();
     const apiKey = resolveSteamApiKey();
+    let merged: ProviderGame[];
     if (steamId && apiKey) {
       const owned = await fetchSteamOwnedGames(steamId, apiKey);
-      return mergeInstallPaths(owned, installed);
-    }
-    if (installed.length > 0) return installed;
-    if (!steamId) {
+      merged = mergeInstallPaths(owned, installed);
+    } else if (installed.length > 0) {
+      merged = installed;
+    } else if (!steamId) {
       throw new Error('Steam conectada sem SteamID — reconecte a Steam ou defina STEAM_ID');
+    } else {
+      throw new Error('STEAM_API_KEY ausente — não dá para listar a biblioteca owned');
     }
-    throw new Error('STEAM_API_KEY ausente — não dá para listar a biblioteca owned');
+
+    const games = merged.filter((g) => !isNonGameSteam(g.externalId, g.title));
+    purgeNonGameSteamEntries();
+    return games;
   });
+}
+
+/** Remove SteamVR / runtimes já gravados (só entradas 100% steam não-jogo). */
+export function purgeNonGameSteamEntries(): number {
+  const repo = getLibraryRepository();
+  let removed = 0;
+  for (const game of repo.list()) {
+    if (game.sources.length === 0) continue;
+    if (!game.sources.every((s) => s.platform === 'steam')) continue;
+    const hit = game.sources.some((s) =>
+      isNonGameSteam(s.externalId, s.title || game.title)
+    );
+    if (!hit) continue;
+    repo.remove(game.id);
+    removed += 1;
+  }
+  return removed;
 }
 
 function gogAccessToken(): string | null {

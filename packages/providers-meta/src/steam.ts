@@ -203,14 +203,15 @@ export class SteamAPI {
   }
 
   /**
-   * Wishlist Steam via IWishlistService/GetWishlist (precisa de API key).
+   * Wishlist Steam via IWishlistService/GetWishlist (só steamid; key opcional).
    * Enriquecimento de nomes via Store appdetails em blocos de 5 (rate limit).
    */
   async getWishlist(
     steamId: string,
-    apiKey: string
+    apiKey?: string
   ): Promise<{ games: SteamWishlistGame[]; error?: string; warning?: string }> {
-    const params = new URLSearchParams({ key: apiKey, steamid: steamId });
+    const params = new URLSearchParams({ steamid: steamId });
+    if (apiKey?.trim()) params.set('key', apiKey.trim());
     let data: { response?: { items?: Array<{ appid: number; priority?: number; date_added?: number }> } };
     try {
       data = await getJson<{

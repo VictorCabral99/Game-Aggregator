@@ -124,10 +124,12 @@ export default function App(): JSX.Element {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [ready, setReady] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [sideNavOpen, setSideNavOpen] = useState(false);
   const [groupOpen, setGroupOpen] = useState<Record<string, boolean>>({});
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const headerMenuRef = useRef<HTMLDivElement | null>(null);
+  const sideNavRef = useRef<HTMLElement | null>(null);
   const enrichRunning = useRef(false);
   const padStatusRef = useRef<{ connected: boolean; active: boolean; id: string | null }>({
     connected: false,
@@ -167,6 +169,7 @@ export default function App(): JSX.Element {
 
   const goSection = useCallback((next: AppSection) => {
     setSection(next);
+    setSideNavOpen(false);
     if (next === 'library') setView({ kind: 'library' });
   }, []);
 
@@ -385,6 +388,18 @@ export default function App(): JSX.Element {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
+
+  useEffect(() => {
+    if (!sideNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSideNavOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [sideNavOpen]);
 
   useEffect(() => {
     if (!headerMenuOpen) return;
@@ -618,6 +633,7 @@ export default function App(): JSX.Element {
     cols,
     view,
     section,
+    sideNavOpen,
   });
   padNavRef.current = {
     selected,
@@ -625,6 +641,7 @@ export default function App(): JSX.Element {
     cols,
     view,
     section,
+    sideNavOpen,
   };
 
   useEffect(() => {
@@ -662,6 +679,12 @@ export default function App(): JSX.Element {
       const inGrid = isInsideGrid(active);
 
       if (action === 'back') {
+        if (n.sideNavOpen) {
+          setSideNavOpen(false);
+          uiBack();
+          requestAnimationFrame(() => focusSelectedCard());
+          return;
+        }
         uiBack();
         const beforeView = n.view.kind;
         const beforeSection = n.section;
@@ -687,16 +710,50 @@ export default function App(): JSX.Element {
       if (action === 'search') {
         goSection('library');
         setView({ kind: 'library' });
+        setSideNavOpen(false);
         searchRef.current?.focus();
         searchRef.current?.select();
         return;
       }
-      if (action === 'settings') {
-        setView((v) => (v.kind === 'settings' ? { kind: 'library' } : { kind: 'settings' }));
+      if (action === 'menu') {
+        if (n.view.kind === 'settings' || n.view.kind === 'accounts') {
+          setView({ kind: 'library' });
+          setSideNavOpen(false);
+          return;
+        }
+        if (n.view.kind !== 'library') {
+          setView({ kind: 'library' });
+        }
+        setSideNavOpen((open) => {
+          const next = !open;
+          if (next) {
+            requestAnimationFrame(() => {
+              const first = sideNavRef.current?.querySelector<HTMLElement>('.side-nav__item');
+              first?.focus({ preventScroll: true });
+            });
+          } else {
+            requestAnimationFrame(() => focusSelectedCard());
+          }
+          return next;
+        });
         return;
       }
       if (action === 'emulation') {
         goSection('retro');
+        return;
+      }
+
+      if (action === 'filterPrev' || action === 'filterNext') {
+        if (n.view.kind !== 'library' || n.section !== 'library') return;
+        const ids = FILTER_OPTIONS.map((o) => o.id);
+        setFilter((current) => {
+          let i = ids.indexOf(current);
+          if (i < 0) i = 0;
+          const delta = action === 'filterNext' ? 1 : -1;
+          return ids[(i + delta + ids.length) % ids.length];
+        });
+        setSelected(0);
+        uiMove();
         return;
       }
 
@@ -848,9 +905,26 @@ export default function App(): JSX.Element {
     view.kind === 'form' && view.gameId ? games.find((g) => g.id === view.gameId) ?? null : null;
 
   return (
-    <div className={`app-layout ${user ? 'app-layout--authed' : ''}`} data-pad-root={view.kind === 'library' && !detailGame ? '1' : undefined}>
+    <div
+      className={`app-layout ${user ? 'app-layout--authed' : ''} ${sideNavOpen ? 'app-layout--nav-open' : ''}`}
+      data-pad-root={view.kind === 'library' && !detailGame ? '1' : undefined}
+    >
+      {user && sideNavOpen && (
+        <button
+          type="button"
+          className="side-nav-backdrop"
+          aria-label="Fechar menu"
+          onClick={() => setSideNavOpen(false)}
+        />
+      )}
       {user && (
-        <nav className="side-nav" aria-label="Navegação principal">
+        <nav
+          ref={sideNavRef}
+          id="side-nav"
+          className={`side-nav ${sideNavOpen ? 'side-nav--open' : ''}`}
+          aria-label="Navegação principal"
+          aria-hidden={!sideNavOpen}
+        >
           <div className="side-nav__brand">
             <strong>Game Aggregator</strong>
             <small>{user.name?.split(' ')[0] || user.email}</small>
@@ -891,11 +965,18 @@ export default function App(): JSX.Element {
           <button
             type="button"
             className="side-nav__item side-nav__item--ghost"
-            onClick={() => setView({ kind: 'settings' })}
+            onClick={() => {
+              setSideNavOpen(false);
+              setView({ kind: 'settings' });
+            }}
           >
             <span className="side-nav__label">Configurações</span>
           </button>
-          <button type="button" className="side-nav__item side-nav__item--ghost" onClick={() => void logout()}>
+          <button
+            type="button"
+            className="side-nav__item side-nav__item--ghost"
+            onClick={() => void logout()}
+          >
             <span className="side-nav__label">Sair</span>
           </button>
         </nav>
@@ -937,6 +1018,18 @@ export default function App(): JSX.Element {
       ) : (
         <>
       <header className="shell__header">
+        {user && (
+          <button
+            type="button"
+            className="header__menu-btn"
+            aria-expanded={sideNavOpen}
+            aria-controls="side-nav"
+            title="Menu (Start)"
+            onClick={() => setSideNavOpen((o) => !o)}
+          >
+            ☰
+          </button>
+        )}
         <h1>Game Aggregator Launcher</h1>
         <span className="badge">{games.length} jogos</span>
         {steam && (
@@ -1250,7 +1343,7 @@ export default function App(): JSX.Element {
       {!ready && <div className="boot-ready" aria-live="polite">Carregando biblioteca…</div>}
 
       <footer className="hint">
-        Controle: D-pad move · A confirma · B volta · Y busca · Start config
+        Controle: D-pad move · A confirma · B volta · Y busca · L1/R1 filtro · Start menu
       </footer>
         </>
       )}

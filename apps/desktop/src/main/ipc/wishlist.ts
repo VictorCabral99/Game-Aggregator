@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import { getSetting, getWishlistRepository } from '../db';
 import type { WishlistAddInput } from '../../shared/api';
+import { resolveSteamId } from '../providers/steam-library';
 import { importSteamWishlist, searchItadGames, syncWishlistPrices } from '../wishlist';
 
 export function registerWishlistHandlers(): void {
@@ -30,6 +31,6 @@ export function registerWishlistHandlers(): void {
   ipcMain.handle('wishlist:settings', () => ({
     itadKey: process.env.ITAD_API_KEY ?? getSetting('keys.itad') ?? '',
     country: process.env.ITAD_COUNTRY ?? getSetting('itad.country') ?? 'BR',
-    steamId: getSetting('steam.id') ?? '',
+    steamId: resolveSteamId() ?? '',
   }));
 }

@@ -3,6 +3,7 @@ import type { ProviderGame } from '@gagg/core';
 import { getSetting } from '../db';
 import { getAuthRepository } from '../db';
 import { getCurrentUserId } from '../auth';
+import { isNonGameSteam } from './steam-filters';
 
 function httpGetJson(url: string): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -67,6 +68,7 @@ export async function fetchSteamOwnedGames(
     const appid = g?.appid != null ? String(g.appid) : '';
     const title = typeof g?.name === 'string' ? g.name.trim() : '';
     if (!appid || !title) continue;
+    if (isNonGameSteam(appid, title)) continue;
     games.push({
       providerId: 'steam',
       externalId: appid,

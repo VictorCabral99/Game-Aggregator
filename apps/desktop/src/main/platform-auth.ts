@@ -1,6 +1,6 @@
 import { BrowserWindow, ipcMain, net } from 'electron';
 import { URLSearchParams } from 'node:url';
-import { getAuthRepository, getSetting } from './db';
+import { getAuthRepository, getSetting, setSetting } from './db';
 import { getCurrentUserId } from './auth';
 import type { PlatformAccount, PlatformOAuthStartResult } from '../shared/api';
 import {
@@ -639,7 +639,7 @@ async function finishPlatformAuth(
     ? new Date(Date.now() + expiresIn * 1000).toISOString()
     : undefined;
 
-  return repo.upsertPlatformAccount({
+  const account = repo.upsertPlatformAccount({
     userId,
     platform: platform as 'steam' | 'gog' | 'epic' | 'amazon',
     externalUserId: result.externalUserId,
@@ -649,6 +649,13 @@ async function finishPlatformAuth(
     tokenExpiresAt,
     metadata: result.metadata,
   });
+
+  // Mantém steam.id alinhado à conta OAuth (wishlist/import usavam só o setting).
+  if (platform === 'steam' && result.externalUserId) {
+    setSetting('steam.id', result.externalUserId);
+  }
+
+  return account;
 }
 
 export function registerPlatformAuthHandlers(): void {

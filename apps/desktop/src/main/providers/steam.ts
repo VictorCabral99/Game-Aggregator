@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { GameProvider, LaunchResult, PlatformId, ProviderGame } from '@gagg/core';
 import { libraryFoldersFromVdf, parseVdf, vdfGet, type VdfNode } from './vdf.ts';
+import { isNonGameSteam } from './steam-filters.ts';
 
 type SettingsApi = {
   get: (key: string) => string | null;
@@ -105,6 +106,7 @@ export class SteamProvider implements GameProvider {
           const name = vdfGet(state, 'name');
           const installdir = vdfGet(state, 'installdir');
           if (!appid || !name) continue;
+          if (isNonGameSteam(appid, name)) continue;
           const sizeBytes = Number(vdfGet(state, 'SizeOnDisk')) || undefined;
           games.push({
             providerId: 'steam',

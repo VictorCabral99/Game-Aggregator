@@ -233,7 +233,7 @@ export default function SettingsModal({ onClose, onChanged, onOpenAccounts }: Se
             ×
           </button>
         </div>
-        <p className="settings__hint">Botão Start do controle abre esta tela.</p>
+        <p className="settings__hint">Abra pelo menu lateral (Start) → Configurações.</p>
         {loading ? (
           <p className="emulation__empty">Carregando…</p>
         ) : (

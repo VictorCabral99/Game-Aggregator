@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'crypto';
 import axios from 'axios';
+import { amazonCoverUrlFromProduct } from './amazon-covers';
 
 /**
  * Amazon Games client — Nile / Heroic device-auth flow.
@@ -280,7 +281,7 @@ export class AmazonAPI {
           id,
           title,
           productId: id,
-          image: product.productImageUrl || product.iconUrl || undefined,
+          image: amazonCoverUrlFromProduct(product),
         });
       }
 

@@ -1,5 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ITADSearchResult, WishlistAlert, WishlistEntry } from '../../../shared/api';
+import {
+  isHistoricalLowDeal,
+  sortWishlistEntries,
+  type WishlistSortMode,
+} from '../lib/wishlist-sort';
 
 interface Props {
   onClose: () => void;
@@ -56,11 +61,13 @@ function WishlistRow({ entry, onUpdate, onRemove, onOpenOffer }: RowProps): JSX.
   const p = entry.price;
   const hasDeal = Boolean(p && p.currentPrice !== null);
   const onSale = Boolean(p?.cutPercent && p.cutPercent > 0);
+  const histLow = isHistoricalLowDeal(entry);
 
   return (
-    <li className="wishlist__row">
+    <li className={`wishlist__row ${histLow ? 'wishlist__row--hist-low' : ''}`}>
       <div className="wishlist__row-main">
         <strong className="wishlist__title">{entry.title}</strong>
+        {histLow && <span className="wishlist__hist-badge">Mínimo histórico</span>}
         {p?.shopName && <span className="wishlist__shop">{p.shopName}</span>}
       </div>
       <div className="wishlist__price">
@@ -153,6 +160,12 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [sortMode, setSortMode] = useState<WishlistSortMode>('price');
+
+  const sortedEntries = useMemo(
+    () => sortWishlistEntries(entries, sortMode),
+    [entries, sortMode]
+  );
 
   const load = async () => {
     try {
@@ -301,6 +314,17 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
           >
             {adding ? 'Cancelar' : '+ Adicionar'}
           </button>
+          <label className="wishlist__sort">
+            <span>Ordenar</span>
+            <select
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as WishlistSortMode)}
+              aria-label="Ordenar wishlist"
+            >
+              <option value="price">Preço (menor)</option>
+              <option value="discount">Desconto (maior)</option>
+            </select>
+          </label>
         </div>
 
         {adding && (
@@ -352,11 +376,14 @@ export default function WishlistModal({ onClose, onAlerts, embedded = false }: P
         ) : entries.length === 0 ? (
           <div className="emulation__empty">
             <strong>Wishlist vazia</strong>
-            <span>Adicione jogos para acompanhar preços e receber alertas quando baterem o alvo.</span>
+            <span>
+              Clique em <em>Importar Steam</em> (wishlist pública no perfil) ou adicione jogos
+              manualmente para acompanhar preços.
+            </span>
           </div>
         ) : (
           <ul className="wishlist__list">
-            {entries.map((entry) => (
+            {sortedEntries.map((entry) => (
               <WishlistRow
                 key={entry.id}
                 entry={entry}

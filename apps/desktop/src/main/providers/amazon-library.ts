@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { net } from 'electron';
 import type { ProviderGame } from '@gagg/core';
+import { amazonCoverUrlFromProduct } from './amazon-covers';
 
 /**
  * Amazon Games — Nile / Heroic device-auth (sem Login with Amazon developer app).
@@ -229,7 +230,7 @@ export async function fetchAmazonOwnedGames(
         providerId: 'amazon',
         externalId: id,
         title,
-        coverUrl: product.productImageUrl || product.iconUrl || undefined,
+        coverUrl: amazonCoverUrlFromProduct(product as Record<string, unknown>),
       });
     }
     nextToken = data?.nextToken;
