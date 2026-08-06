@@ -521,6 +521,7 @@ Scraper completo, netplay, distribuição de BIOS/ROMs.
 | P4-08 | **Pasta padrão por console** (`console.<id>.defaultFolder`): scan reconhece ROMs válidos pela extensão e cria/atualiza `GameSource` `emulator` com `console_id` — modelo drop-in | ✅ `scanConsoleFolder` + `upsertRom` idempotente; scan automático ao abrir console com pasta |
 | P4-09 | Mapeamento manual de ROM (apontar arquivo) como alternativa à pasta padrão | ✅ `emulation:map-rom` (file picker) |
 | P4-10 | Título limpo a partir do filename | ✅ `cleanRomTitle` (No-Intro/TOSEC/revisões) em `emulation/rom.ts` |
+| P4-10b | Capas Libretro Named_Boxarts | ✅ usa nome do ROM **com região** + variantes `(USA)/(Europe)/…` (título limpo sozinho 404) + log `[cover]` |
 | P4-11 | Import/scan async + progress para pastas grandes (recursivo, ignora ocultas) | ✅ scan recursivo (depth ≤5, ignora ocultas) + evento `emulation:scan-progress` |
 | P4-12 | Filtro/categoria por console (retro agrupado) | ✅ chip "Retro" na biblioteca + `listByConsole` |
 
