@@ -178,20 +178,22 @@ async function enrichGameRatings(
   game: Game,
   findSteamId: boolean
 ): Promise<{ skipped: boolean }> {
-  const key = rawgKey();
-  if (!key) return { skipped: true };
+  // RAWG/Metacritic pausados (timeout + match ruim) — apenas Steam % ativo
+  // const key = rawgKey();
+  // if (!key) return { skipped: true };
 
   const ratingsRepo = getRatingsRepository();
-  const rawg = new RAWGAPI(key);
+  // const rawg = new RAWGAPI(key);
   const steam = new SteamAPI();
   const title = game.title;
 
   try {
-    const rawgRes = await cachedGetJson(
-      `rawg:title:${title.toLowerCase().trim()}`,
-      RAWG_TTL_MS,
-      async () => rawg.resolveRatingsForTitle(title)
-    );
+    // RAWG/Metacritic desabilitado:
+    // const rawgRes = await cachedGetJson(
+    //   `rawg:title:${title.toLowerCase().trim()}`,
+    //   RAWG_TTL_MS,
+    //   async () => rawg.resolveRatingsForTitle(title)
+    // );
 
     const appid = await ensureSteamAppId(game, findSteamId);
     let steamPercent: number | null = null;
@@ -203,20 +205,21 @@ async function enrichGameRatings(
       steamCount = score.totalReviews > 0 ? score.totalReviews : null;
     }
 
-    ratingsRepo.upsert({
-      gameId: game.id,
-      source: 'rawg',
-      rating: rawgRes.rawg,
-      reviewCount: null,
-      matchedName: rawgRes.matchedName,
-    });
-    ratingsRepo.upsert({
-      gameId: game.id,
-      source: 'metacritic',
-      rating: rawgRes.metacritic,
-      reviewCount: null,
-      matchedName: rawgRes.matchedName,
-    });
+    // RAWG/Metacritic upserts comentados:
+    // ratingsRepo.upsert({
+    //   gameId: game.id,
+    //   source: 'rawg',
+    //   rating: rawgRes.rawg,
+    //   reviewCount: null,
+    //   matchedName: rawgRes.matchedName,
+    // });
+    // ratingsRepo.upsert({
+    //   gameId: game.id,
+    //   source: 'metacritic',
+    //   rating: rawgRes.metacritic,
+    //   reviewCount: null,
+    //   matchedName: rawgRes.matchedName,
+    // });
     if (!isRetroOnly(game)) {
       ratingsRepo.upsert({
         gameId: game.id,
@@ -227,11 +230,20 @@ async function enrichGameRatings(
       });
     }
   } catch {
-    for (const source of ['rawg', 'metacritic', 'steam'] as const) {
-      if (source === 'steam' && isRetroOnly(game)) continue;
+    // if (source === 'steam' && isRetroOnly(game)) continue;
+    // for (const source of ['rawg', 'metacritic', 'steam'] as const) {
+    //   ratingsRepo.upsert({
+    //     gameId: game.id,
+    //     source,
+    //     rating: null,
+    //     reviewCount: null,
+    //     matchedName: null,
+    //   });
+    // }
+    if (!isRetroOnly(game)) {
       ratingsRepo.upsert({
         gameId: game.id,
-        source,
+        source: 'steam',
         rating: null,
         reviewCount: null,
         matchedName: null,
@@ -410,26 +422,27 @@ export async function streamEnrichLibrary(
 
   const counters = { updated: 0, skippedFresh: 0 };
   if (ratingItems.length > 0) {
-    if (!key) {
-      // sem RAWG: marca restantes como skipped (capas já feitas)
-      for (const { game } of ratingItems) {
-        const current = ++totals.index;
-        send({
-          type: 'item',
-          index: current,
-          total,
-          gameId: game.id,
-          title: `Nota · ${game.title}`,
-          coverOk: Boolean(game.coverPath || game.coverUrl),
-          coverPath: game.coverPath ?? null,
-          summary: getRatingsRepository().summaryForGame(game.id),
-          skipped: true,
-        });
-        counters.skippedFresh += 1;
-      }
-    } else {
+    // RAWG/Metacritic pausados — apenas Steam % ativo
+    // if (!key) {
+    //   // sem RAWG: marca restantes como skipped (capas já feitas)
+    //   for (const { game } of ratingItems) {
+    //     const current = ++totals.index;
+    //     send({
+    //       type: 'item',
+    //       index: current,
+    //       total,
+    //       gameId: game.id,
+    //       title: `Nota · ${game.title}`,
+    //       coverOk: Boolean(game.coverPath || game.coverUrl),
+    //       coverPath: game.coverPath ?? null,
+    //       summary: getRatingsRepository().summaryForGame(game.id),
+    //       skipped: true,
+    //     });
+    //     counters.skippedFresh += 1;
+    //   }
+    // } else {
       await processRatingsOnly(ratingItems, send, totals, counters, repo);
-    }
+    // }
   }
 
   send({
