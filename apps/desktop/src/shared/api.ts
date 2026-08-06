@@ -450,6 +450,8 @@ export interface DesktopApi {
   libraryRemove(id: string): Promise<{ ok: boolean }>;
   libraryLaunch(id: string): Promise<LaunchResult>;
   libraryLaunchSource(sourceId: string): Promise<LaunchResult>;
+  libraryInstall(id: string): Promise<LaunchResult>;
+  libraryInstallSource(sourceId: string): Promise<LaunchResult>;
   libraryMergeSources(args: { targetGameId: string; sourceIds: string[] }): Promise<Game>;
   librarySeparateSource(sourceId: string): Promise<Game>;
   libraryPossibleDuplicates(): Promise<Array<{ a: Game; b: Game }>>;

@@ -37,4 +37,9 @@ export class EpicProvider extends SidecarProvider {
   launchApp(appName: string) {
     return this.launch(['launch', appName]);
   }
+
+  /** Instalação via Legendary (-y confirma prompts). */
+  installApp(appName: string) {
+    return this.launch(['install', appName, '-y']);
+  }
 }

@@ -29,6 +29,8 @@ const api: DesktopApi = {
   libraryRemove: (id: string) => ipcRenderer.invoke('library:remove', id),
   libraryLaunch: (id: string) => ipcRenderer.invoke('library:launch', id),
   libraryLaunchSource: (sourceId: string) => ipcRenderer.invoke('library:launch-source', sourceId),
+  libraryInstall: (id: string) => ipcRenderer.invoke('library:install', id),
+  libraryInstallSource: (sourceId: string) => ipcRenderer.invoke('library:install-source', sourceId),
   libraryMergeSources: (args: { targetGameId: string; sourceIds: string[] }) =>
     ipcRenderer.invoke('library:merge-sources', args),
   librarySeparateSource: (sourceId: string) => ipcRenderer.invoke('library:separate-source', sourceId),

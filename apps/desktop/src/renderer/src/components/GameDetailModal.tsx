@@ -10,6 +10,7 @@ interface Props {
   onEdit: () => void;
   onRemove: () => Promise<void>;
   onLaunch: (game: Game, source?: GameSource) => Promise<LaunchResult>;
+  onInstall: (game: Game, source?: GameSource) => Promise<LaunchResult>;
   onSeparateSource: (source: GameSource) => Promise<void>;
   onSyncRating?: () => void;
 }
@@ -20,6 +21,8 @@ const SOURCE_NAMES: Record<string, string> = {
   metacritic: 'Metacritic',
 };
 
+const STORE_PLATFORMS = new Set(['steam', 'epic', 'gog', 'amazon']);
+
 function sourceLabel(source: GameSource): string {
   const platform = PLATFORM_LABELS[source.platform] ?? source.platform;
   if (source.platform === 'local' && source.executable) {
@@ -27,6 +30,17 @@ function sourceLabel(source: GameSource): string {
   }
   if (source.externalId) return `${platform} · ${source.externalId}`;
   return platform;
+}
+
+function canInstall(source: GameSource): boolean {
+  return STORE_PLATFORMS.has(source.platform) && !source.isInstalled && Boolean(source.externalId);
+}
+
+function canPlay(source: GameSource): boolean {
+  if (source.platform === 'local' || source.platform === 'manual' || source.platform === 'emulator') {
+    return true;
+  }
+  return source.isInstalled;
 }
 
 function isStale(iso: string): boolean {
@@ -48,19 +62,25 @@ export default function GameDetailModal({
   onEdit,
   onRemove,
   onLaunch,
+  onInstall,
   onSeparateSource,
   onSyncRating,
 }: Props): JSX.Element {
   const [confirmingRemove, setConfirmingRemove] = useState(false);
-  const [launching, setLaunching] = useState<GameSource | 'preferred' | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const preferred = game.preferredSource;
+  const preferredNeedsInstall = preferred ? canInstall(preferred) : false;
+  const preferredCanPlay = preferred ? canPlay(preferred) : false;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (confirmingRemove) setConfirmingRemove(false);
         else onClose();
-      } else if (e.key === 'Enter' && !confirmingRemove) {
-        void launch('preferred');
+      } else if (e.key === 'Enter' && !confirmingRemove && preferred) {
+        if (preferredNeedsInstall) void runInstall('preferred');
+        else if (preferredCanPlay) void runLaunch('preferred');
       } else if (e.key === 'Delete') {
         setConfirmingRemove(true);
       }
@@ -68,14 +88,25 @@ export default function GameDetailModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [confirmingRemove, onClose]);
+  }, [confirmingRemove, onClose, preferredNeedsInstall, preferredCanPlay]);
 
-  const launch = async (source: GameSource | 'preferred') => {
-    setLaunching(source);
+  const runLaunch = async (source: GameSource | 'preferred') => {
+    const key = source === 'preferred' ? 'launch:preferred' : `launch:${source.id}`;
+    setBusy(key);
     try {
       await onLaunch(game, source === 'preferred' ? undefined : source);
     } finally {
-      setLaunching(null);
+      setBusy(null);
+    }
+  };
+
+  const runInstall = async (source: GameSource | 'preferred') => {
+    const key = source === 'preferred' ? 'install:preferred' : `install:${source.id}`;
+    setBusy(key);
+    try {
+      await onInstall(game, source === 'preferred' ? undefined : source);
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -179,33 +210,58 @@ export default function GameDetailModal({
 
         {game.sources.length > 0 && (
           <div className="sources">
-            <p className="sources__title">Iniciar por fonte</p>
+            <p className="sources__title">Fontes</p>
             {game.sources.map((source) => {
               const isPreferred = game.preferredSource?.id === source.id;
-              const busy = launching === source;
+              const installing = busy === `install:${source.id}`;
+              const launching = busy === `launch:${source.id}`;
+              const showInstall = canInstall(source);
+              const showPlay = canPlay(source);
               return (
                 <div
                   key={source.id}
-                  className={`source-row ${isPreferred ? 'source-row--preferred' : ''}`}
+                  className={`source-row ${isPreferred ? 'source-row--preferred' : ''} ${
+                    !source.isInstalled && STORE_PLATFORMS.has(source.platform)
+                      ? 'source-row--missing'
+                      : ''
+                  }`}
                   title={
                     source.platform !== 'local'
-                      ? 'Abre via plataforma oficial — o launcher apenas inicia o jogo'
+                      ? 'Abre via cliente oficial da loja'
                       : undefined
                   }
                 >
                   <span className="source-row__label">
                     {sourceLabel(source)}
                     {isPreferred && <span className="badge">padrão</span>}
+                    {STORE_PLATFORMS.has(source.platform) && !source.isInstalled && (
+                      <span className="badge badge--muted">não instalado</span>
+                    )}
+                    {source.isInstalled && STORE_PLATFORMS.has(source.platform) && (
+                      <span className="badge badge--ok">instalado</span>
+                    )}
                   </span>
                   <span className="source-row__launch">
-                    <button
-                      type="button"
-                      className="source-row__play"
-                      disabled={busy}
-                      onClick={() => void launch(source)}
-                    >
-                      {busy ? 'Iniciando…' : '▶ Jogar'}
-                    </button>
+                    {showInstall && (
+                      <button
+                        type="button"
+                        className="source-row__install"
+                        disabled={busy !== null}
+                        onClick={() => void runInstall(source)}
+                      >
+                        {installing ? 'Abrindo…' : 'Instalar'}
+                      </button>
+                    )}
+                    {showPlay && (
+                      <button
+                        type="button"
+                        className="source-row__play"
+                        disabled={busy !== null}
+                        onClick={() => void runLaunch(source)}
+                      >
+                        {launching ? 'Iniciando…' : '▶ Iniciar'}
+                      </button>
+                    )}
                     {game.sources.length > 1 && (
                       <button
                         type="button"
@@ -224,14 +280,25 @@ export default function GameDetailModal({
         )}
 
         <div className="modal__actions">
-          <button
-            type="button"
-            className="primary"
-            disabled={!game.preferredSource || launching !== null}
-            onClick={() => void launch('preferred')}
-          >
-            {launching === 'preferred' ? 'Iniciando…' : '▶ Jogar (Enter)'}
-          </button>
+          {preferredNeedsInstall ? (
+            <button
+              type="button"
+              className="primary"
+              disabled={!preferred || busy !== null}
+              onClick={() => void runInstall('preferred')}
+            >
+              {busy === 'install:preferred' ? 'Abrindo loja…' : '⬇ Instalar (Enter)'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="primary"
+              disabled={!preferred || !preferredCanPlay || busy !== null}
+              onClick={() => void runLaunch('preferred')}
+            >
+              {busy === 'launch:preferred' ? 'Iniciando…' : '▶ Iniciar (Enter)'}
+            </button>
+          )}
           <button type="button" onClick={onEdit}>Editar</button>
           {confirmingRemove ? (
             <>
@@ -248,6 +315,12 @@ export default function GameDetailModal({
         </div>
         {confirmingRemove && (
           <p className="hint">Remove apenas da biblioteca — não apaga arquivos do disco.</p>
+        )}
+        {preferredNeedsInstall && (
+          <p className="hint">
+            A instalação abre o cliente oficial da loja. Depois, sincronize a loja em Lojas para
+            marcar como instalado.
+          </p>
         )}
       </div>
     </div>

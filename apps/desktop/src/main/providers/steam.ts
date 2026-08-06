@@ -41,7 +41,7 @@ export class SteamProvider implements GameProvider {
   capabilities = {
     scanLibrary: true,
     launch: true,
-    install: false,
+    install: true,
     playtime: true,
     uninstall: false,
   };
@@ -127,6 +127,16 @@ export class SteamProvider implements GameProvider {
     try {
       const { shell } = await import('electron');
       await shell.openExternal(`steam://rungameid/${game.externalId}`);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
+  async install(game: ProviderGame): Promise<LaunchResult> {
+    try {
+      const { shell } = await import('electron');
+      await shell.openExternal(`steam://install/${game.externalId}`);
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err instanceof Error ? err.message : String(err) };

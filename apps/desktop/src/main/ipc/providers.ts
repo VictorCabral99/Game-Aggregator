@@ -94,6 +94,7 @@ function toRows(games: ProviderGame[]): ProviderGameRow[] {
     coverUrl: g.coverUrl,
     installPath: g.installPath,
     isInstalled: Boolean(g.installPath),
+    rawJson: g.raw ? JSON.stringify(g.raw) : null,
   }));
 }
 

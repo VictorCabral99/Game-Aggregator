@@ -730,6 +730,26 @@ export default function App(): JSX.Element {
       if (res.ok) {
         notify(`Iniciando ${game.title}…`);
         await refresh();
+      } else if (res.error) {
+        notify(res.error, 'error');
+      }
+      return res;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      notify(msg, 'error');
+      return { ok: false, error: msg };
+    }
+  };
+
+  const install = async (game: Game, source?: GameSource): Promise<LaunchResult> => {
+    try {
+      const res = source
+        ? await window.api.libraryInstallSource(source.id)
+        : await window.api.libraryInstall(game.id);
+      if (res.ok) {
+        notify(`Abrindo instalação de ${game.title} na loja…`);
+      } else if (res.error) {
+        notify(res.error, 'error');
       }
       return res;
     } catch (err) {
@@ -1183,6 +1203,7 @@ export default function App(): JSX.Element {
           onEdit={() => setView({ kind: 'form', gameId: detailGame.id })}
           onRemove={() => remove()}
           onLaunch={launch}
+          onInstall={install}
           onSeparateSource={separateSource}
           onSyncRating={() => void syncRatings()}
         />

@@ -1,7 +1,8 @@
 import { dialog, ipcMain } from 'electron';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { getLibraryRepository, getSetting } from '../db';
-import { launchPlatformGame } from '../providers';
+import { installPlatformGame, launchPlatformGame } from '../providers';
+import { isStorePlatform } from '../providers/store-protocols';
 import type { CreateGameInput, UpdateGameInput } from '../db/games';
 import type { LibraryImportResult, LibraryExportPayload } from '../../shared/api';
 import {
@@ -69,6 +70,20 @@ export function registerLibraryHandlers(): void {
     return launchSource(source.id);
   });
 
+  ipcMain.handle('library:install', async (_event, id: string) => {
+    const game = repo().get(id);
+    if (!game) throw new Error('Jogo não encontrado');
+    const source = game.preferredSource;
+    if (!source) throw new Error('Jogo sem fonte para instalar');
+    return installSource(source.id);
+  });
+
+  ipcMain.handle('library:install-source', async (_event, sourceId: string) => {
+    const source = repo().getSource(sourceId);
+    if (!source) throw new Error('Fonte do jogo não encontrada');
+    return installSource(source.id);
+  });
+
   ipcMain.handle('library:merge-sources', (_event, args: { targetGameId: string; sourceIds: string[] }) => {
     if (!args?.targetGameId || !Array.isArray(args.sourceIds)) {
       throw new Error('Argumentos inválidos para merge');
@@ -125,6 +140,19 @@ function parseLaunchArgs(raw: string | null | undefined): string[] {
   return raw.trim().split(/\s+/).filter(Boolean);
 }
 
+function installSource(sourceId: string) {
+  const repo = getLibraryRepository();
+  const source = repo.getSource(sourceId);
+  if (!source) return Promise.resolve({ ok: false, error: 'Fonte não encontrada' });
+  if (!isStorePlatform(source.platform)) {
+    return Promise.resolve({ ok: false, error: 'Só lojas suportam instalação remota' });
+  }
+  if (!source.externalId) {
+    return Promise.resolve({ ok: false, error: 'Jogo sem id externo' });
+  }
+  return installPlatformGame(source.platform, source.externalId, { rawJson: source.rawJson });
+}
+
 function launchSource(sourceId: string) {
   const repo = getLibraryRepository();
   const source = repo.getSource(sourceId);
@@ -138,11 +166,13 @@ function launchSource(sourceId: string) {
     });
   }
 
-  if (source.platform !== 'local') {
+  if (source.platform !== 'local' && source.platform !== 'manual') {
     if (!source.externalId) {
       return Promise.resolve({ ok: false, error: 'Jogo sem id externo' });
     }
-    return launchPlatformGame(source.platform, source.externalId).then((res) => {
+    return launchPlatformGame(source.platform, source.externalId, {
+      rawJson: source.rawJson,
+    }).then((res) => {
       if (res.ok) repo.touchSourcePlayed(source.id);
       return res;
     });

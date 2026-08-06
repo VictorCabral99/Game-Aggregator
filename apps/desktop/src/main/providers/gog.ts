@@ -40,4 +40,9 @@ export class GogProvider extends SidecarProvider {
   launchApp(appName: string) {
     return this.launch(['launch', appName]);
   }
+
+  /** Download/install via gogdl (abre o processo; progresso no terminal do sidecar). */
+  installApp(appName: string) {
+    return this.launch(['download', appName, '--platform', 'windows', '--skip-dlcs']);
+  }
 }

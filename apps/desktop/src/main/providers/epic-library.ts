@@ -111,10 +111,16 @@ export async function exchangeEpicAuthCode(code: string): Promise<{
   return data;
 }
 
+type CatalogInfo = {
+  title: string;
+  image?: string;
+  appId?: string;
+};
+
 async function resolveTitles(
   accessToken: string,
   items: Array<{ namespace: string; catalogItemId: string }>
-): Promise<Map<string, { title: string; image?: string }>> {
+): Promise<Map<string, CatalogInfo>> {
   const byNamespace = new Map<string, string[]>();
   for (const item of items) {
     if (!item.namespace || !item.catalogItemId) continue;
@@ -123,7 +129,7 @@ async function resolveTitles(
     byNamespace.set(item.namespace, list);
   }
 
-  const titles = new Map<string, { title: string; image?: string }>();
+  const titles = new Map<string, CatalogInfo>();
   const locale = process.env.EPIC_LOCALE || 'pt-BR';
   const country = process.env.EPIC_COUNTRY || 'BR';
 
@@ -150,7 +156,11 @@ async function resolveTitles(
         if (res.status >= 400) continue;
         const data = JSON.parse(res.body) as Record<
           string,
-          { title?: string; keyImages?: Array<{ type?: string; url?: string }> }
+          {
+            title?: string;
+            keyImages?: Array<{ type?: string; url?: string }>;
+            releaseInfo?: Array<{ appId?: string; platform?: string[] }>;
+          }
         >;
         for (const [catalogId, info] of Object.entries(data)) {
           if (!info?.title) continue;
@@ -158,7 +168,15 @@ async function resolveTitles(
             info.keyImages?.find((img) => img.type === 'DieselGameBoxTall')?.url ||
             info.keyImages?.find((img) => img.type === 'DieselGameBox')?.url ||
             info.keyImages?.[0]?.url;
-          titles.set(`${namespace}:${catalogId}`, { title: info.title, image });
+          const winRelease =
+            info.releaseInfo?.find((r) =>
+              (r.platform ?? []).some((p) => /win/i.test(p))
+            ) ?? info.releaseInfo?.[0];
+          titles.set(`${namespace}:${catalogId}`, {
+            title: info.title,
+            image,
+            appId: winRelease?.appId,
+          });
         }
       } catch {
         // ignore chunk
@@ -212,16 +230,17 @@ export async function fetchEpicOwnedGames(accessToken: string): Promise<Provider
     const namespace = String(item.namespace);
     const catalogItemId = String(item.catalogItemId);
     const resolved = titleMap.get(`${namespace}:${catalogItemId}`);
-    const meta = (item.metadata || {}) as { title?: string };
+    const meta = (item.metadata || {}) as { title?: string; appName?: string };
     const title =
       resolved?.title || meta.title || (typeof item.title === 'string' ? item.title : '');
     if (!title || /^[0-9a-f]{32}$/i.test(title)) continue;
+    const appId = resolved?.appId || meta.appName || catalogItemId;
     games.push({
       providerId: 'epic',
       externalId: catalogItemId,
       title,
       coverUrl: resolved?.image,
-      raw: { namespace },
+      raw: { namespace, catalogItemId, appId },
     });
   }
 
