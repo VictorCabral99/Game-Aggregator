@@ -39,4 +39,10 @@ describe('store-protocols', () => {
   it('abre página GOG Galaxy pelo product id', () => {
     expect(gogOpenUri('1207659012')).toBe('goggalaxy://openGameView/1207659012');
   });
+
+  it('Epic sem namespace usa só o artifact (fallback sem launcher oficial)', () => {
+    expect(epicAppUri('MyGame', 'launch')).toBe(
+      'com.epicgames.launcher://apps/MyGame?action=launch'
+    );
+  });
 });

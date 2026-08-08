@@ -20,6 +20,7 @@ import {
   resolveSteamId,
 } from '../providers/steam-library';
 import { isNonGameSteam } from '../providers/steam-filters';
+import { scanHeroicInstalled } from '../providers/heroic-installed';
 
 const STORE_FACTORIES: Array<() => SidecarProvider> = [
   () => getEpicProvider(),
@@ -115,21 +116,64 @@ async function runScan(
   }
 }
 
+function epicAppId(g: ProviderGame): string | undefined {
+  const appId = g.raw?.appId;
+  return typeof appId === 'string' && appId ? appId : undefined;
+}
+
+/** Une owned (API) com instalados locais/Heroic. Epic também casa catalogItemId ↔ appId Legendary. */
 function mergeInstallPaths(owned: ProviderGame[], installed: ProviderGame[]): ProviderGame[] {
   const byId = new Map(installed.map((g) => [g.externalId, g]));
+  const matchedInstalled = new Set<string>();
+
   const merged = owned.map((g) => {
-    const local = byId.get(g.externalId);
+    const local =
+      byId.get(g.externalId) ??
+      (epicAppId(g) ? byId.get(epicAppId(g) as string) : undefined);
     if (!local) return g;
+    matchedInstalled.add(local.externalId);
     return {
       ...g,
       installPath: local.installPath ?? g.installPath,
       sizeBytes: local.sizeBytes ?? g.sizeBytes,
+      // Guarda appName Legendary/Heroic para launch (catalogItemId ≠ app_name em alguns títulos)
+      raw: {
+        ...(typeof g.raw === 'object' && g.raw ? g.raw : {}),
+        ...(typeof local.raw === 'object' && local.raw ? local.raw : {}),
+        appId: epicAppId(g) || local.externalId,
+      },
     };
   });
+
   for (const g of installed) {
-    if (!merged.some((m) => m.externalId === g.externalId)) merged.push(g);
+    if (matchedInstalled.has(g.externalId)) continue;
+    const already = merged.some(
+      (m) => m.externalId === g.externalId || epicAppId(m) === g.externalId
+    );
+    if (!already) merged.push(g);
   }
   return merged;
+}
+
+function scanSidecarOrHeroicInstalled(platform: 'epic' | 'gog' | 'amazon'): ProviderGame[] {
+  try {
+    if (platform === 'epic' && getEpicProvider().isAvailable()) {
+      return getEpicProvider().scan();
+    }
+    if (platform === 'gog' && getGogProvider().isAvailable()) {
+      return getGogProvider().scan();
+    }
+    if (platform === 'amazon' && getAmazonProvider().isAvailable()) {
+      return getAmazonProvider().scan();
+    }
+  } catch {
+    // sidecar ausente / comando inválido (ex.: gogdl sem list-installed)
+  }
+  try {
+    return scanHeroicInstalled(platform);
+  } catch {
+    return [];
+  }
 }
 
 /** Steam: owned (Web API) + instalados locais (manifests). */
@@ -204,19 +248,15 @@ export function scanStore(id: GamePlatform) {
   if (id === 'gog') {
     return runScan('gog', async () => {
       const token = gogAccessToken();
+      const installed = scanSidecarOrHeroicInstalled('gog');
       if (token) {
-        let installed: ProviderGame[] = [];
-        try {
-          if (getGogProvider().isAvailable()) installed = getGogProvider().scan();
-        } catch {
-          installed = [];
-        }
         const owned = await fetchGogOwnedGames(token);
         return mergeInstallPaths(owned, installed);
       }
+      if (installed.length > 0) return installed;
       const provider = getGogProvider();
       if (!provider.isAvailable()) {
-        throw new Error('GOG não conectada (OAuth) e gogdl.exe ausente');
+        throw new Error('GOG não conectada (OAuth) e gogdl.exe/Heroic ausentes');
       }
       return provider.scan();
     });
@@ -226,12 +266,7 @@ export function scanStore(id: GamePlatform) {
     return runScan('epic', async () => {
       const account = platformAccount('epic');
       const token = account?.accessToken;
-      let installed: ProviderGame[] = [];
-      try {
-        if (getEpicProvider().isAvailable()) installed = getEpicProvider().scan();
-      } catch {
-        installed = [];
-      }
+      const installed = scanSidecarOrHeroicInstalled('epic');
       if (token) {
         const owned = await fetchEpicOwnedGames(token);
         return mergeInstallPaths(owned, installed);
@@ -249,12 +284,7 @@ export function scanStore(id: GamePlatform) {
         typeof account?.metadata === 'object' && account.metadata && 'serial' in account.metadata
           ? String((account.metadata as { serial?: string }).serial ?? '')
           : '';
-      let installed: ProviderGame[] = [];
-      try {
-        if (getAmazonProvider().isAvailable()) installed = getAmazonProvider().scan();
-      } catch {
-        installed = [];
-      }
+      const installed = scanSidecarOrHeroicInstalled('amazon');
       if (token && serial) {
         const owned = await fetchAmazonOwnedGames(token, serial);
         return mergeInstallPaths(owned, installed);

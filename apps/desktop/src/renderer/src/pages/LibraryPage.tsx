@@ -168,7 +168,7 @@ export default function LibraryPage(props: Props): JSX.Element {
           )}
           ratings={ratings}
           hideScores={hideNotes}
-          cardHeight={Math.round(profileTokens.cardWidth * 1.65)}
+          cardHeight={Math.round(profileTokens.cardWidth * 1.78)}
           gap={profileTokens.cardGap}
           onSelect={onSelect}
           onOpen={onOpen}

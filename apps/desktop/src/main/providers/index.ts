@@ -13,6 +13,11 @@ import {
   steamInstallUri,
   steamLaunchUri,
 } from './store-protocols';
+import {
+  heroicActionUri,
+  heroicRunnerFor,
+  isHeroicAvailable,
+} from './heroic-installed';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -66,6 +71,11 @@ function parseEpicMeta(rawJson: string | null | undefined): {
   }
 }
 
+function epicLaunchId(externalId: string, rawJson?: string | null): string {
+  const meta = parseEpicMeta(rawJson);
+  return meta.appId || externalId;
+}
+
 function findAmazonGamesExe(): string | null {
   const local = process.env.LOCALAPPDATA;
   if (!local) return null;
@@ -86,7 +96,22 @@ function spawnDetached(exe: string, args: string[] = []): Promise<LaunchResult> 
   });
 }
 
-/** Dispara o launch do jogo pela plataforma correta (steam://, sidecar ou protocolo). */
+/** Prefer Heroic quando instalado (sem Epic Launcher / Galaxy / Amazon Games). */
+async function viaHeroic(
+  platform: 'epic' | 'gog' | 'amazon',
+  action: 'launch' | 'install',
+  appName: string,
+  installPath?: string
+): Promise<LaunchResult | null> {
+  if (!isHeroicAvailable()) return null;
+  return openStoreProtocol(
+    heroicActionUri(action, heroicRunnerFor(platform), appName, {
+      path: installPath,
+    })
+  );
+}
+
+/** Dispara o launch do jogo pela plataforma correta (Heroic, steam://, sidecar ou protocolo). */
 export async function launchPlatformGame(
   platform: GamePlatform,
   externalId: string,
@@ -96,20 +121,25 @@ export async function launchPlatformGame(
     case 'steam':
       return openStoreProtocol(steamLaunchUri(externalId));
     case 'epic': {
+      const appName = epicLaunchId(externalId, opts?.rawJson);
+      const heroic = await viaHeroic('epic', 'launch', appName);
+      if (heroic) return heroic;
       if (getEpicProvider().isAvailable()) {
-        const meta = parseEpicMeta(opts?.rawJson);
-        const appName = meta.appId || externalId;
         return getEpicProvider().launchApp(appName);
       }
       return openStoreProtocol(epicAppUri(externalId, 'launch', parseEpicMeta(opts?.rawJson)));
     }
     case 'gog': {
+      const heroic = await viaHeroic('gog', 'launch', externalId);
+      if (heroic) return heroic;
       if (getGogProvider().isAvailable()) {
         return getGogProvider().launchApp(externalId);
       }
       return openStoreProtocol(gogOpenUri(externalId));
     }
     case 'amazon': {
+      const heroic = await viaHeroic('amazon', 'launch', externalId);
+      if (heroic) return heroic;
       if (getAmazonProvider().isAvailable()) {
         return getAmazonProvider().launchApp(externalId);
       }
@@ -123,8 +153,7 @@ export async function launchPlatformGame(
 }
 
 /**
- * Abre o fluxo de instalação no cliente oficial da loja (não baixa o jogo aqui).
- * Steam: steam://install · Epic: installer · GOG: Galaxy · Amazon: cliente / Nile.
+ * Abre o fluxo de instalação (Heroic preferencial; senão cliente oficial / sidecar).
  * Com sidecar: instala preferencialmente sob local.gamesRoot (C:\Games\{Loja}).
  */
 export async function installPlatformGame(
@@ -144,8 +173,8 @@ export async function installPlatformGame(
 
   switch (platform) {
     case 'steam': {
-      const steam = getSteamProvider();
-      const steamRoot = steam.detectPath();
+      const steamProv = getSteamProvider();
+      const steamRoot = steamProv.detectPath();
       if (steamRoot) {
         try {
           const { ensureSteamLibraryFolder } = await import('../organize');
@@ -157,31 +186,37 @@ export async function installPlatformGame(
       return openStoreProtocol(steamInstallUri(externalId));
     }
     case 'epic': {
+      const appName = epicLaunchId(externalId, opts?.rawJson);
+      const dest = platformDir(root, 'epic');
+      const heroic = await viaHeroic('epic', 'install', appName, dest);
+      if (heroic) return heroic;
       if (getEpicProvider().isAvailable()) {
-        const meta = parseEpicMeta(opts?.rawJson);
-        const appName = meta.appId || externalId;
-        return getEpicProvider().installApp(appName, platformDir(root, 'epic'));
+        return getEpicProvider().installApp(appName, dest);
       }
       return openStoreProtocol(epicAppUri(externalId, 'installer', parseEpicMeta(opts?.rawJson)));
     }
     case 'gog': {
+      const dest = suggestedInstallPath(root, 'gog', opts?.title || externalId);
+      const heroic = await viaHeroic('gog', 'install', externalId, dest);
+      if (heroic) return heroic;
       if (getGogProvider().isAvailable()) {
-        const dest = suggestedInstallPath(root, 'gog', opts?.title || externalId);
         return getGogProvider().installApp(externalId, dest);
       }
-      // Galaxy abre a página do jogo — o usuário confirma a instalação lá.
       return openStoreProtocol(gogOpenUri(externalId));
     }
     case 'amazon': {
+      const dest = suggestedInstallPath(root, 'amazon', opts?.title || externalId);
+      const heroic = await viaHeroic('amazon', 'install', externalId, dest);
+      if (heroic) return heroic;
       if (getAmazonProvider().isAvailable()) {
-        const dest = suggestedInstallPath(root, 'amazon', opts?.title || externalId);
         return getAmazonProvider().installApp(externalId, dest);
       }
       const exe = findAmazonGamesExe();
       if (exe) return spawnDetached(exe);
       return {
         ok: false,
-        error: 'Amazon Games não encontrado. Abra o cliente Amazon Games para instalar.',
+        error:
+          'Amazon Games / Heroic não encontrados. Instale o Heroic ou o cliente Amazon Games.',
       };
     }
     default:
