@@ -3,6 +3,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import {
+  DEFAULT_COLLAPSED_BANDS,
+  groupByRatingBands,
+  type RatingBandId,
+} from '@/lib/rating-bands';
 
 type Tab = 'library' | 'wishlist';
 type LibrarySort = 'name' | 'steam';
@@ -29,6 +34,7 @@ interface GameRating {
   id: string;
   source: string;
   rating: number | null;
+  reviewCount?: number | null;
 }
 
 interface GameDeal {
@@ -291,15 +297,28 @@ function upsertRating(
   ratings: GameRating[],
   source: string,
   rating: number | null,
-  tempId: string
+  tempId: string,
+  reviewCount?: number | null
 ): GameRating[] {
   const idx = ratings.findIndex((r) => r.source === source);
   if (idx >= 0) {
     const next = ratings.slice();
-    next[idx] = { ...next[idx], rating };
+    next[idx] = {
+      ...next[idx],
+      rating,
+      ...(reviewCount !== undefined ? { reviewCount } : {}),
+    };
     return next;
   }
-  return [...ratings, { id: tempId, source, rating }];
+  return [
+    ...ratings,
+    {
+      id: tempId,
+      source,
+      rating,
+      ...(reviewCount !== undefined ? { reviewCount } : {}),
+    },
+  ];
 }
 
 function applyLiveRatings(
@@ -309,12 +328,19 @@ function applyLiveRatings(
     metacritic: number | null;
     steam: number | null;
     steamAppId?: number | null;
+    reviewCount?: number | null;
   }
 ): LibraryGame {
   let ratings = game.ratings ? [...game.ratings] : [];
   ratings = upsertRating(ratings, 'metacritic', patch.metacritic, `live-${game.id}-metacritic`);
   ratings = upsertRating(ratings, 'rawg', patch.rawg, `live-${game.id}-rawg`);
-  ratings = upsertRating(ratings, 'steam', patch.steam, `live-${game.id}-steam`);
+  ratings = upsertRating(
+    ratings,
+    'steam',
+    patch.steam,
+    `live-${game.id}-steam`,
+    patch.reviewCount
+  );
 
   let gameData = game.gameData;
   if (patch.steamAppId) {
@@ -455,6 +481,23 @@ function pickDisplayRating(
   return null;
 }
 
+function steamReviewCount(ratings: GameRating[] | undefined): number | null {
+  const row = ratings?.find((r) => r.source === 'steam');
+  if (!row || row.reviewCount === null || row.reviewCount === undefined) {
+    return null;
+  }
+  const n = Number(row.reviewCount);
+  return Number.isNaN(n) ? null : n;
+}
+
+function formatReviewCount(n: number): string {
+  if (n >= 1000) {
+    const k = n / 1000;
+    return `${k >= 10 ? Math.round(k) : Math.round(k * 10) / 10}k reviews`;
+  }
+  return `${n} reviews`;
+}
+
 function storeLabel(platform: string) {
   return STORES.find((s) => s.id === platform)?.name || platform.toUpperCase();
 }
@@ -490,6 +533,10 @@ export default function Dashboard() {
   const [librarySort, setLibrarySort] = useState<LibrarySort>('steam');
   const [wishlistSort, setWishlistSort] = useState<WishlistSort>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [collapsedBands, setCollapsedBands] = useState<Record<string, boolean>>(
+    () =>
+      Object.fromEntries(DEFAULT_COLLAPSED_BANDS.map((id) => [id, true]))
+  );
 
   const toggleStore = (platform: string) => {
     setVisibleStores((prev) => ({ ...prev, [platform]: !prev[platform] }));
@@ -783,6 +830,10 @@ export default function Dashboard() {
                     metacritic: existingMeta,
                     steam,
                     steamAppId,
+                    reviewCount:
+                      typeof event.reviewCount === 'number'
+                        ? event.reviewCount
+                        : null,
                   });
                 }
                 if (phase === 'rawg') {
@@ -797,6 +848,10 @@ export default function Dashboard() {
                   metacritic,
                   steam,
                   steamAppId,
+                  reviewCount:
+                    typeof event.reviewCount === 'number'
+                      ? event.reviewCount
+                      : undefined,
                 });
               })
             );
@@ -1353,6 +1408,87 @@ export default function Dashboard() {
     return list;
   }, [games, visibleStores, librarySort, sortDir]);
 
+  const libraryGroups = useMemo(() => {
+    if (librarySort !== 'steam') return null;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    const inputs = visibleGames.map((g) => ({
+      id: g.id,
+      title: gameTitle(parseGameData(g.gameData)),
+      steamRating: ratingValue(g.ratings, 'steam'),
+      reviewCount: steamReviewCount(g.ratings),
+      game: g,
+    }));
+    return groupByRatingBands(inputs, dir);
+  }, [visibleGames, librarySort, sortDir]);
+
+  const toggleBand = (id: RatingBandId) => {
+    setCollapsedBands((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const renderLibraryCard = (game: LibraryGame) => {
+    const data = parseGameData(game.gameData);
+    const playtime = Number(data.playtime_forever || 0);
+    const display = pickDisplayRating(game.ratings, librarySort);
+    const reviews = steamReviewCount(game.ratings);
+    const isLooking = lookingIds.includes(game.id);
+    const stageLabel = lookingStages[game.id];
+    const justUpdated = freshIds.includes(game.id);
+    const sourceLabel = display?.source === 'steam' ? 'Steam' : '';
+    return (
+      <div
+        key={game.id}
+        className={`bg-gray-700 p-4 rounded-lg transition-[outline,box-shadow,background-color] duration-300 ${
+          isLooking ? 'live-looking' : ''
+        } ${justUpdated ? 'live-just-updated' : ''}`}
+      >
+        <div className="flex justify-between items-start gap-3 mb-2">
+          <h3 className="font-semibold leading-tight min-w-0 flex-1">
+            <GameTitleLink
+              platform={game.platform}
+              externalId={game.externalId}
+              data={data}
+            />
+          </h3>
+          <div className="w-[4.5rem] shrink-0 flex flex-col items-center">
+            <div
+              className={`w-12 h-8 flex items-center justify-center rounded text-sm font-bold tabular-nums ${
+                display
+                  ? getRatingColor(display.value)
+                  : isLooking
+                    ? 'bg-indigo-900/80 text-indigo-200 animate-pulse'
+                    : 'bg-gray-600 text-gray-300'
+              }`}
+            >
+              {display
+                ? display.source === 'steam'
+                  ? `${Math.round(display.value)}%`
+                  : display.value
+                : isLooking
+                  ? '…'
+                  : '—'}
+            </div>
+            <p className="h-4 w-full text-center text-[10px] leading-4 text-indigo-300/90 mt-0.5 truncate">
+              {isLooking && stageLabel
+                ? stageLabel.replace(/…$/, '')
+                : sourceLabel || '\u00A0'}
+            </p>
+            {reviews !== null && !isLooking && (
+              <p className="w-full text-center text-[9px] leading-3 text-gray-500 mt-0.5 truncate">
+                {formatReviewCount(reviews)}
+              </p>
+            )}
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mb-2">{storeLabel(game.platform)}</p>
+        {playtime > 0 && (
+          <p className="text-sm text-gray-400 mb-2">
+            {Math.floor(playtime / 60)}h jogadas
+          </p>
+        )}
+      </div>
+    );
+  };
+
   const visibleWishlist = useMemo(() => {
     const list = wishlist.filter((g) => visibleStores[g.platform] !== false);
     const dir = sortDir === 'asc' ? 1 : -1;
@@ -1731,66 +1867,42 @@ export default function Dashboard() {
               </p>
             ) : visibleGames.length === 0 ? (
               <p className="text-gray-400">Nenhuma loja visível — ative pelo menos uma acima.</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {visibleGames.map((game) => {
-                  const data = parseGameData(game.gameData);
-                  const playtime = Number(data.playtime_forever || 0);
-                  const display = pickDisplayRating(game.ratings, librarySort);
-                  const isLooking = lookingIds.includes(game.id);
-                  const stageLabel = lookingStages[game.id];
-                  const justUpdated = freshIds.includes(game.id);
-                  const sourceLabel =
-                    display?.source === 'steam' ? 'Steam' : '';
+            ) : libraryGroups ? (
+              <div className="flex flex-col gap-4">
+                {libraryGroups.map((group) => {
+                  const collapsed = !!collapsedBands[group.id];
                   return (
-                    <div
-                      key={game.id}
-                      className={`bg-gray-700 p-4 rounded-lg transition-[outline,box-shadow,background-color] duration-300 ${
-                        isLooking ? 'live-looking' : ''
-                      } ${justUpdated ? 'live-just-updated' : ''}`}
-                    >
-                      <div className="flex justify-between items-start gap-3 mb-2">
-                        <h3 className="font-semibold leading-tight min-w-0 flex-1">
-                          <GameTitleLink
-                            platform={game.platform}
-                            externalId={game.externalId}
-                            data={data}
-                          />
-                        </h3>
-                        <div className="w-14 shrink-0 flex flex-col items-center">
-                          <div
-                            className={`w-12 h-8 flex items-center justify-center rounded text-sm font-bold tabular-nums ${
-                              display
-                                ? getRatingColor(display.value)
-                                : isLooking
-                                  ? 'bg-indigo-900/80 text-indigo-200 animate-pulse'
-                                  : 'bg-gray-600 text-gray-300'
-                            }`}
-                          >
-                            {display
-                              ? display.source === 'steam'
-                                ? `${Math.round(display.value)}%`
-                                : display.value
-                              : isLooking
-                                ? '…'
-                                : '—'}
-                          </div>
-                          <p className="h-4 w-full text-center text-[10px] leading-4 text-indigo-300/90 mt-0.5 truncate">
-                            {isLooking && stageLabel
-                              ? stageLabel.replace(/…$/, '')
-                              : sourceLabel || '\u00A0'}
-                          </p>
+                    <div key={group.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggleBand(group.id)}
+                        aria-expanded={!collapsed}
+                        className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 rounded-lg bg-gray-700/40 hover:bg-gray-700/80 border border-gray-700 text-sm font-medium text-gray-200"
+                      >
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="text-gray-500 tabular-nums w-4 shrink-0">
+                            {collapsed ? '▸' : '▾'}
+                          </span>
+                          <span className="truncate">{group.label}</span>
+                          <span className="text-gray-500 font-normal shrink-0">
+                            · {group.games.length}
+                          </span>
+                        </span>
+                      </button>
+                      {!collapsed && (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
+                          {group.games.map((item) =>
+                            renderLibraryCard(item.game)
+                          )}
                         </div>
-                      </div>
-                      <p className="text-xs text-gray-400 mb-2">{storeLabel(game.platform)}</p>
-                      {playtime > 0 && (
-                        <p className="text-sm text-gray-400 mb-2">
-                          {Math.floor(playtime / 60)}h jogadas
-                        </p>
                       )}
                     </div>
                   );
                 })}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {visibleGames.map((game) => renderLibraryCard(game))}
               </div>
             )}
           </section>

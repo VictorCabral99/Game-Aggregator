@@ -247,6 +247,7 @@ export async function POST(request: NextRequest) {
           }
 
           let steamPercent: number | null = null;
+          let steamReviewCount: number | null = null;
           if (steamAppId) {
             const { value: review, ms } = await timed(
               gameName,
@@ -255,8 +256,9 @@ export async function POST(request: NextRequest) {
               () => steam.getReviewScore(steamAppId!)
             );
             steamPercent = review.percent;
+            steamReviewCount = review.totalReviews;
             fileLog.line(
-              `steam · ${gameName} · review ${steamPercent ?? 'null'}% · ${ms}ms`
+              `steam · ${gameName} · review ${steamPercent ?? 'null'}% · ${steamReviewCount} reviews · ${ms}ms`
             );
           }
 
@@ -287,6 +289,7 @@ export async function POST(request: NextRequest) {
               },
               update: {
                 rating: steamPercent,
+                reviewCount: steamReviewCount,
                 lastUpdated: new Date(),
                 ...(steamDbLink ? { url: steamDbLink } : {}),
               },
@@ -294,6 +297,7 @@ export async function POST(request: NextRequest) {
                 gameLibraryId: game.id,
                 source: 'steam',
                 rating: steamPercent,
+                reviewCount: steamReviewCount,
                 ...(steamDbLink ? { url: steamDbLink } : {}),
               },
             });
@@ -308,12 +312,13 @@ export async function POST(request: NextRequest) {
             gameId: game.id,
             title: gameName,
             steam: steamPercent,
+            reviewCount: steamReviewCount,
             steamAppId,
             rawg: null,
             metacritic: null,
             message:
               steamPercent && steamPercent > 0
-                ? `${gameName} · Steam ${steamPercent}%`
+                ? `${gameName} · Steam ${steamPercent}% (${steamReviewCount ?? 0} reviews)`
                 : `${gameName} — sem % Steam`,
             current: completed,
             total: totalSteam,
